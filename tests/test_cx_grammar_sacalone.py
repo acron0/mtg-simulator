@@ -28,9 +28,9 @@ class Parsing(unittest.TestCase):
         self.assertEqual(effs[1].data["xq"], ("this_way", "sacrificed", "permanent"))
 
     def test_refusals(self):
-        for s in ("Sacrifice any number of Goblins. Draw a card for each Goblin sacrificed this way.",
-                  "Sacrifice any number of lands. Search your library for up to that many land cards, put them onto "
-                  "the battlefield tapped, then shuffle."):
+        # (Scapeshift's "... Search your library for up to that many land cards ..." is read since #339:
+        # tests/test_search_that_many.py)
+        for s in ("Sacrifice any number of Goblins. Draw a card for each Goblin sacrificed this way.",):
             self.assertNotEqual(P._parse_effects(s)[1], [], s)
 
 

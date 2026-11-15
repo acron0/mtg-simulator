@@ -30,23 +30,80 @@ def _body(text: str):
     m = re.fullmatch(r"(?:~|it|this creature) deals (\d+) damage", text, re.I)
     if m:
         return [Effect("damage", int(m[1]), target=_SAME)]
-    m = re.fullmatch(r"create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|X|\d+) of those tokens"
+    m = re.fullmatch(r"create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|X|\d+) of those tokens"
                      r"(?:, where X is (.+))?", text, re.I)
     if m:
         from .cards.clauses import _xq
         spec = _xq(m[2]) if m[2] else None
         if m[1].lower() == "x":
             return [Effect("token", 1, target=_SAME, data={"xq": spec})] if spec else None
-        n = _num(m[1])
+        n = {"eleven": 11, "twelve": 12}.get(m[1].lower()) or _num(m[1])
         return [Effect("token", n, target=_SAME)] if n and not m[2] else None
     if re.fullmatch(r"(?:~|it|this spell) deals twice X damage to that (?:permanent|creature|player)", text, re.I):
         return [Effect("damage", target=_SAME, data={"x": True, "instead_multiplier": 2})]
     if re.fullmatch(r"that player mills twice that many cards", text, re.I):
         return [Effect("mill", target=_SAME, data={"instead_amount": True, "instead_multiplier": 2})]
+    m = re.fullmatch(r"(?:those creatures|they) get ([+-]\d+)/([+-]\d+) until end of turn", text, re.I)
+    if m:           # the replaced group pump with other numbers ("those creatures get +2/+2 until end of turn")
+        return [Effect("cx_same_pt", int(m[1]), int(m[2]), target=_SAME, data={"instead_pt": True})]
     new, bad = _parse_effects(text[0].upper() + text[1:] + ".")
     if new and not bad:
         return new
+    return _anaphor(text)
+
+
+# "it", "that creature", ... after the verb: the object of the effect this one replaces
+_ANAPHOR = re.compile(r"(?<=\S )(?:it|that creature|that permanent|the creature|the permanent)\b(?!')", re.I)
+
+
+def _anaphor(text: str):
+    """Effects for "exile it", "you may put that creature on top of its owner's library": the body read with
+    "target creature" (or "target permanent") in the anaphor's place, its one targeted effect then aimed at the
+    replaced effect's object (target "prev", marked ``cx_anaphor`` so ``resolve_instead`` checks there is one)."""
+    from .cards import _parse_effects
+    from .engine.state import TARGETED
+    if len(_ANAPHOR.findall(text)) != 1:
+        return None
+    for noun in ("target creature", "target permanent"):
+        new, bad = _parse_effects(_ANAPHOR.sub(noun, text, count=1)[0].upper() + _ANAPHOR.sub(noun, text, count=1)[1:]
+                                  + ".")
+        if not new or bad:
+            continue
+        aimed = [n for n, e in enumerate(new) if e.target in TARGETED]
+        if len(aimed) != 1 or any(e.target not in ("none",) for n, e in enumerate(new) if n not in aimed) or \
+                any(key in new[aimed[0]].data for key in ("optional_target", "distinct")):
+            continue
+        e = new[aimed[0]]
+        data = {key: v for key, v in e.data.items() if key not in ("selector", "side")}   # chosen by the base
+        new[aimed[0]] = dataclasses.replace(e, target="prev", filter="", data=dict(data, cx_anaphor=True))
+        return new
     return None
+
+
+def if_body(body: str):
+    """(effects, unmatched) for the body of "If C, B": a "B instead" body is read by the "instead" riders, so no
+    template takes "instead" for part of B (a token "with flying instead")."""
+    from .cards import _parse_effects
+    m = re.fullmatch(r"(.+?),? instead|instead,? (.+)", body.strip().rstrip("."), re.I)
+    effects = _body(m[1] or m[2]) if m else None
+    if effects:
+        return _mark(effects), []
+    return _parse_effects(body[0].upper() + body[1:] + ".")
+
+
+def kicked_instead(base: list, text: str) -> bool:
+    """"If this spell was kicked, B instead" for the kicked version's effects ``base`` (in place): B read like any
+    "instead" body and tied to the instruction before it, gated on the kick (always true on the kicked cast)."""
+    m = re.fullmatch(r"(.+?),? instead|instead,? (.+)", text.strip().rstrip("."), re.I)
+    effects = _body(m[1] or m[2]) if m and base else None
+    if not effects:
+        return False
+    merged = base + _mark(effects, 'lib:["kicked"]')
+    # the kicked lines come without their sentence boundaries: only a lone base effect is surely "the one before"
+    if resolve_instead(merged, [0, len(base)] if len(base) == 1 else None):
+        return False
+    base[:] = merged
+    return True
 
 
 def _mark(effects, cond=""):
@@ -93,9 +150,72 @@ def _nested() -> bool:
     return calls > 1
 
 
-def resolve_instead(effects: list) -> list:
+_PT_KINDS = {"pump": 1, "pump_all": 1, "debuff_one": -1, "debuff": -1, "debuff_all": -1}
+
+
+def _swap_pt(base, new):
+    """The group pump ``base`` with the numbers of "those creatures get +A/+B ... instead", or None when base is no
+    such pump or the signs don't fit its kind (a -N pump kind can't carry +N)."""
+    from .engine.state import TARGETED
+    inner = base
+    if base.kind == "cx_group" and len(base.data.get("effects") or ()) == 1:
+        inner = base.data["effects"][0]
+    sign = _PT_KINDS.get(inner.kind)
+    if sign is None or base.kind in ("pump", "debuff_one") and base.target in TARGETED:
+        return None             # a single target is "that creature", not "those creatures"
+    a, b = new.amount * sign, new.amount2 * sign
+    if a < 0 or b < 0 or set(inner.data) - {"other", "keyword", "side"} or inner.data.get("keyword"):
+        return None
+    swapped = dataclasses.replace(inner, amount=a, amount2=b)
+    if inner is not base:
+        swapped = dataclasses.replace(base, data=dict(base.data, effects=[swapped]))
+    target = "prev" if base.target in TARGETED else base.target
+    return dataclasses.replace(swapped, target=target, cond=new.cond,
+                               data=dict(swapped.data, cx_instead=True))
+
+
+def _previous_sentence(effects, i, starts):
+    """The index where the sentence before the one starting at effect ``i`` begins, or None (no such sentence, it
+    gave no effects, or the "instead" sentence gave effects before ``i``)."""
+    if not starts or i not in starts:
+        return None
+    n = max(x for x, st in enumerate(starts) if st == i)
+    if n == 0 or starts[n - 1] == i:
+        return None
+    return starts[n - 1]
+
+
+def _link(old, group):
+    """``group`` with its references to "the replaced object" bound to the effects ``old`` of the sentence before,
+    or None when a reference has nothing to bind to."""
+    from .engine.state import TARGETED
+    objects = [o for o in old if o.target != "none"]
+    ref = objects[-1].target if objects else "none"
+    out = []
+    for g in group:
+        if g.target == _SAME and not (len(old) == 1 and g.kind == old[0].kind):
+            return None
+        if g.target == "prev":
+            if ref in ("host", "self"):
+                g = dataclasses.replace(g, target=ref)
+            elif ref not in TARGETED and ref != "prev":
+                return None
+        elif g.target == "that_player":
+            if ref == "each_opponent" and g.kind == "lose_life" and not g.data.get("xq"):
+                g = dataclasses.replace(g, kind="drain")    # "that player loses 3 life": the opponent, as drain
+                g = dataclasses.replace(g, target="each_opponent")
+            elif ref == "player":
+                g = dataclasses.replace(g, target="prev")
+            else:
+                return None
+        out.append(g)
+    return out
+
+
+def resolve_instead(effects: list, starts=None) -> list:
     """Give the effects an "instead" group replaces the opposite condition, in place. Returns the sentences that
-    could not be tied to what they replace (for the unmatched list)."""
+    could not be tied to what they replace (for the unmatched list). ``starts`` (where each sentence's effects
+    begin) lets a group replace the whole sentence before it when no effect-by-effect match is found."""
     from .engine.state import TARGETED
     referents = set(TARGETED) | {"self", "prev"}
     bad = []
@@ -118,6 +238,23 @@ def resolve_instead(effects: list) -> list:
             group = [dataclasses.replace(group[0], kind="copy_next_spell",
                      data=dict(effects[i - 1].data, **group[0].data))]
             effects[i:j] = group
+        if len(group) == 1 and group[0].kind == "token" and group[0].target == _SAME and i and \
+                effects[i - 1].kind in ("cx_token", "copy_perm") and not effects[i - 1].data.get("xq") and \
+                not group[0].data.get("xq"):
+            # "create five of those tokens instead" after a token kind that counts in its own way
+            prior, n = effects[i - 1], group[0].amount
+            data = dict(prior.data, n=n) if prior.kind == "copy_perm" else dict(prior.data)
+            group = effects[i:j] = [dataclasses.replace(
+                prior, amount=n if prior.kind == "cx_token" else prior.amount, cond=group[0].cond,
+                target="prev" if prior.target in TARGETED else prior.target, data=dict(data, cx_instead=True))]
+        if len(group) == 1 and group[0].data.get("instead_pt"):
+            swapped = _swap_pt(effects[i - 1], group[0]) if i else None
+            if swapped is None:
+                bad.append("An \"instead\" effect without the effect it replaces.")
+                del effects[i:j]
+                continue
+            group = effects[i:j] = [swapped]
+            old, k = [effects[i - 1]], 1
         if any(g.target == _SAME and (not old or g.kind != old[min(n, len(old) - 1)].kind)
                for n, g in enumerate(group)) and old:
             bad.append('An "instead" effect without a matching referent.')
@@ -139,6 +276,23 @@ def resolve_instead(effects: list) -> list:
         if len(old) == 1:
             matches |= any(g.kind == old[0].kind or
                            g.target == "prev" and old[0].target in referents for g in group)
+        a = _previous_sentence(effects, i, starts) if not matches or any(
+            g.target == "prev" and not (old and old[-1].target in set(TARGETED) | {"prev"}) for g in group) else None
+        prior = effects[a:i] if a is not None else []
+        shared = {g.kind for g in group} & {o.kind for o in prior} - {"pay_gate"}
+        if prior and not any(o.cond or o.data.get("cx_instead") for o in prior) and not (len(prior) > 1 and shared):
+            # (a kind shared with part of a longer sentence: "draw a card and gain 2 life. If C, gain 8 life
+            # instead" replaces only that part, which the match above didn't find)
+            # "If C, B instead" replaces the whole instruction before it: "create a 1/1 Insect token. If ..., create a
+            # token that's a copy of ~ instead", "~ deals 2 damage to any target. If ..., exile it instead"
+            linked = _link(prior, group)
+            if linked is not None:
+                group = effects[i:j] = linked
+                old, k, matches = prior, i - a, True
+        if any(g.data.get("cx_anaphor") for g in group) and not (
+                old and [o for o in old if o.target != "none"] and
+                [o for o in old if o.target != "none"][-1].target in set(TARGETED) | {"prev"}):
+            matches = False     # "exile it instead" needs a chosen object to be "it"
         if not cond or not old or any(o.data.get("cx_instead") for o in old) or not matches:
             bad.append("An \"instead\" effect without the effect it replaces.")
             del effects[i:j]
@@ -154,7 +308,7 @@ def resolve_instead(effects: list) -> list:
                                                     data=dict(o.data, instead_gate=gate, instead_branch=False,
                                                               instead_base_cond=o.cond))
         for n, g in enumerate(group):
-            data = {key: v for key, v in g.data.items() if key != "cx_instead"}
+            data = {key: v for key, v in g.data.items() if key not in ("cx_instead", "cx_anaphor")}
             data.update(instead_gate=gate, instead_branch=True)
             target = g.target
             if g.kind == "cx_players" and g.data.get("who") == "that_player" and old[0].target == "player":
@@ -241,6 +395,38 @@ def _cost(text: str):
     if m:
         spec = _filter(m[1], plural=False) if m[1] else {}
         return {"discard": spec} if spec is not None else None
+    return _counted_cost(text)
+
+
+_COUNT = r"(a|an|another|one|two|three|four|five)"
+
+
+def _counted_cost(text: str):
+    """The counted costs of #330, or None: "return(s) N [untapped] <filter> you control to (its|their) owner's
+    hand", "tap(s) N untapped <filter> you control", "remove(s) N <kind> counter(s) from it", "exile(s) a card
+    from your graveyard", "has ~ deal N damage to them" (the payer takes the damage from the source)."""
+    from .cards.model import _num
+    from .cx_condlib import _filter
+
+    def count(word):
+        return 1 if word.lower() in ("a", "an", "another") else _num(word)
+
+    m = re.fullmatch(rf"returns? {_COUNT} (.+?) you control to (?:its|their) owners?'s? hands?", text, re.I)
+    if m:
+        spec = _filter(m[2], plural=count(m[1]) > 1)
+        return {"bounce": spec, "count": count(m[1]), "other": m[1].lower() == "another"} if spec else None
+    m = re.fullmatch(rf"taps? {_COUNT} untapped (.+?) you control", text, re.I)
+    if m:
+        spec = _filter(m[2], plural=count(m[1]) > 1)
+        return {"tap": spec, "count": count(m[1]), "other": m[1].lower() == "another"} if spec else None
+    m = re.fullmatch(rf"removes? {_COUNT} (\+1/\+1|-1/-1|[a-z]+) counters? from (?:it|~)", text, re.I)
+    if m:
+        return {"remove_counter": m[2].lower(), "count": count(m[1])}
+    if re.fullmatch(r"exiles? a card from (?:your|their) graveyard", text, re.I):
+        return {"exile_gy": {}}
+    m = re.fullmatch(r"(?:has|have) (?:~|it) deal (\d+) damage to (?:them|you|him or her)", text, re.I)
+    if m:
+        return {"damage": int(m[1])}
     return None
 
 

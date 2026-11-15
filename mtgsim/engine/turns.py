@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from .. import alt_casts, auras, copies, creature_keywords, graveyard, storage
+from .. import alt_casts, auras, copies, creature_keywords, cx_delayed, graveyard, storage
 from ..cards import Activated, CardDef, Effect
 from .. import rules_events, continuous, counter_mechanics
 from ..identity import CardInstance, Graveyard
@@ -35,6 +35,11 @@ class TurnsMixin:
             for pl in self.players:
                 if pl is not owner:          # triggers only: the move itself is the zone_change event above
                     self._dispatch_trigger_event(pl, "opp_card_to_gy", None, card)
+        if destination.name == "graveyard" and getattr(destination, "owner", None) is not None:
+            # "Whenever a land card is put into your graveyard from anywhere" (cx_trig_events.gy_head): the trigger
+            # grammar only, like opp_card_to_gy above (the move itself is the zone_change event)
+            from .. import cx_events
+            cx_events.observe(self, destination.owner, "card_to_gy", None, origin, card)
 
     def next_effect_timestamp(self):
         self.effect_clock += 1
@@ -371,6 +376,7 @@ class TurnsMixin:
         if self.over:
             return
         self.step = "main2"
+        cx_delayed.at_step(self, "main2", p)        # "at the beginning of your next main phase this turn"
         self.fire(p, "main2_begin")
         self.fire(p, "survival")
         self.settle()
@@ -412,6 +418,7 @@ class TurnsMixin:
         if self.over:
             return
         self.step = "cleanup"
+        cx_delayed.at_step(self, "cleanup", p)      # "at the beginning of the next cleanup step"
         counter_mechanics.expire_source_control(self, cleanup=True)
         max_hand = 7 + sum(x.card.hand_size_mod for x in p.battlefield) + sum(x.card.opp_hand_size_mod for x in opp.battlefield)
         from ..cx_next_turn import player_flag
@@ -458,6 +465,7 @@ class TurnsMixin:
         waiting, self.delayed_end_step = self.delayed_end_step, []
         for controller, effects, source, context in waiting:
             self.queue_trigger(controller, effects, source, 'at the beginning of the next end step', context=context)
+        cx_delayed.at_step(self, "end", p)          # "at the beginning of your next end step"
         from ..residual_templates import on_end_step
         on_end_step(self, p)
         from ..batch1_templates import end_step_draw
@@ -483,6 +491,7 @@ class TurnsMixin:
             else:
                 self.queue_trigger(controller, [Effect("rebound_cast")], name=f"{card.name}: rebound",
                                    context=(card, version))
+        cx_delayed.at_step(self, "upkeep", p)      # "at the beginning of your next upkeep" (#344)
         creature_keywords.upkeep(self, p)
         storage.upkeep(self, p)
         alt_casts.upkeep(self, p)

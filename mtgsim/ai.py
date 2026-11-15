@@ -146,7 +146,7 @@ def _aim(card: CardDef, eff, target) -> list:
 
 # Effects plan_spell values through _extra_value.
 EXTRA_KINDS = {"reanimate_total", "reanimate_one", "tutor_gy", "regrow_perm", "regrow_any", "tutor", "explore", "earthbend", "unblockable", "oring_all", "pump_all", "double_counters", "learn",
-               "tap", "stun", "mill", "proliferate", "search_plan"} | copies.KINDS
+               "tap", "stun", "mill", "proliferate", "search_plan", "cx_turn_trigger"} | copies.KINDS
 
 CARRIER_KINDS = ("pump", "grant", "p1_counters", "unblockable")   # aimed at the creature that attacks
 
@@ -1157,6 +1157,9 @@ class HeuristicAI:
         ready = [c for c in me.creatures if c.can_attack() and c.power > 0]
         if k == "proliferate":
             return None, eff.amount * proliferate.value(game, me)
+        if k == "cx_turn_trigger":      # "Whenever <event> this turn, ..." (#399)
+            v = __import__("mtgsim.cx_trig_turn", fromlist=["value"]).value(game, me, eff, card, precombat)
+            return (None, v) if v > 0 else None
         if k == "learn":
             return None, learning.value(game, me)
         if k in copies.KINDS:

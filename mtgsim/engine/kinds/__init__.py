@@ -51,3 +51,4 @@ from . import cx_tokens  # noqa: E402,F401
 from . import cx_exchange  # noqa: E402,F401  (exchange of control, #334)
 from . import cx_attach  # noqa: E402,F401  (attach an Aura / Equipment to another object, #343)
 from . import cx_static  # noqa: E402,F401  (sim-static's small kinds)
+from . import cx_trig_turn  # noqa: E402,F401  (triggers for the rest of the turn, #399)

@@ -184,11 +184,23 @@ _ZONES = {"your graveyard": "you", "a graveyard": "any", "an opponent's graveyar
 def card_noun(text: str):
     """A spec for a card noun phrase ("creature card with mana value 3 or less", "instant or sorcery card"), or
     None. Only these words are read: anything else (named, with a keyword, lesser, chosen, ...) rejects."""
+    subtypes = None
+    sub = re.fullmatch(r"((?:[a-z]+ )*?)([A-Z][\w'-]*(?:(?:,? or |, |,? and/or )[A-Z][\w'-]*)*) ((?:[a-z]+ )*cards?\b.*)",
+                       text)
+    if sub:                     # "Cleric card", "Aura or Equipment card", "Bird and/or Cleric permanent cards"
+        subtypes = re.split(r",? or |, |,? and/or ", sub[2])
+        if not all(re.fullmatch(r"[A-Z][a-z'-]+", w) for w in subtypes):
+            return None
+        text = sub[1] + sub[3]
+    elif re.search(r"[A-Z]", text):
+        return None             # a name or another capitalized word
     m = _CARD_NOUN.fullmatch(text)
     if m is None:
         return None
     legend, m = m[1], [None, *m.groups()[1:]]
     spec = {"types": re.split(r",? or |, | and/or ", m[3]) if m[3] else []}
+    if subtypes:
+        spec["subtypes"] = subtypes
     if legend:                  # "nonlegendary creature card" (Persist), "historic permanent card"
         spec["legend"] = legend
     if m[1]:
@@ -224,6 +236,9 @@ def card_fits(card, spec, source=None, event=None) -> bool:
     def is_type(t):
         return card.is_permanent if t == "permanent" else t.title() in card.types
     if spec["types"] and not any(is_type(t) for t in spec["types"]):
+        return False
+    if spec.get("subtypes") and not any(t in card.subtypes or card.changeling and card.is_creature
+                                        and t not in _NONCREATURE_SUBTYPES for t in spec["subtypes"]):
         return False
     if spec.get("non") and is_type(spec["non"]):
         return False
@@ -261,6 +276,11 @@ def card_fits(card, spec, source=None, event=None) -> bool:
     return True
 
 
+# Changeling has every creature type, not these
+_NONCREATURE_SUBTYPES = {"Aura", "Equipment", "Vehicle", "Saga", "Curse", "Shrine", "Cartouche", "Rune", "Class",
+                         "Room", "Case", "Background", "Role", "Fortification", "Food", "Treasure", "Clue", "Gate",
+                         "Forest", "Island", "Mountain", "Plains", "Swamp", "Desert", "Lair", "Locus", "Mine",
+                         "Power-Plant", "Tower", "Cave", "Sphere", "Town", "Planet", "Spacecraft", "Attraction"}
 _COLOR_CODES = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 
 
@@ -330,17 +350,18 @@ def return_card(m, clause):
     owner's hand; to the battlefield only from your own graveyard (under your control)."""
     if clause.duration:
         return None
+    text = clause.text[m.start(1):m.end(1)]       # original case: subtypes ("Cleric card")
     if m[5]:
         counters = entry_counters(m[5])
         if counters is None or m[3] != "the battlefield":
             return None
-        parts = _return_parts(m[1], m[2], m[3], m[4], clause)
+        parts = _return_parts(text, m[2], m[3], m[4], clause)
         for part in parts or ():
             inner = part.data.get("effects")
             for target in (inner if inner else [part]):
                 target.data = dict(target.data, counters=counters)
         return parts
-    return _return_parts(m[1], m[2], m[3], m[4], clause)
+    return _return_parts(text, m[2], m[3], m[4], clause)
 
 
 def _return_parts(text, zone, dest, state, clause):
@@ -368,8 +389,11 @@ def _return_parts(text, zone, dest, state, clause):
     # Nontargeted choices happen at resolution, even when the graveyard is empty at cast time.
     from .cards.model import Effect
     from .cx_grammar import Subject
+    at_random = text.endswith(" at random")     # "Return two cards at random from your graveyard to your hand"
+    if at_random:
+        text = text[:-len(" at random")]
     m = re.fullmatch(r"(?:(up to) )?(a|one|two|three|four|five) (.+)", text)
-    if m is None or zone != "your graveyard" or dest not in ("your hand", "the battlefield"):
+    if m is None or zone != "your graveyard" or dest not in ("your hand", "the battlefield") or at_random and m[1]:
         return None
     n, spec = count(m[2]), card_noun(m[3])
     if spec is None or (n > 1) != m[3].split(" with ")[0].endswith("cards"):
@@ -379,6 +403,8 @@ def _return_parts(text, zone, dest, state, clause):
     if data.get("attacking") and spec["types"] != ["creature"]:
         return None
     data = dict(data, cx_card=spec, up_to=bool(m[1]))
+    if at_random:
+        data["random"] = True
     if clause.subject.kind == "player":
         return [Part("cx_card_choose", n, data=data)]
     # A player wrapper gives the AI the same family-local valuation as explicit "you return".
@@ -391,7 +417,7 @@ def _return_parts(text, zone, dest, state, clause):
 def return_card_reordered(m, clause):
     if clause.duration:
         return None
-    return _return_parts(m[3], m[1], m[2], m[4], clause)
+    return _return_parts(clause.text[m.start(3):m.end(3)], m[1], m[2], m[4], clause)
 
 
 @ai_value("cx_card_choose")

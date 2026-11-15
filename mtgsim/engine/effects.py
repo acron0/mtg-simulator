@@ -305,8 +305,10 @@ class EffectsMixin:
             self.leave_battlefield(a, "graveyard")
         self.fire(controller, "leaves", perm)
         returning, perm.exiled_cards = perm.exiled_cards, []
+        refs = getattr(perm, "exiled_refs", {})
         for card, card_owner in returning:
-            if card in card_owner.exile:
+            ref = refs.get(id(card))
+            if (ref.find(card_owner.exile) is not None) if ref is not None else card in card_owner.exile:
                 card_owner.exile.remove(card)
                 self.log(f"{card.name} returns from exile", card_owner)
                 self.enter_battlefield(card_owner, card)

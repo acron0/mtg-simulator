@@ -103,5 +103,45 @@ class KeywordCosts(unittest.TestCase):
         self.assertEqual(courser.counters.get("-1/-1"), 1)
 
 
+    def test_waterbend_parse(self):
+        self.assertEqual(parse_cost("waterbend {5}"), ((("waterbend", 5, {}),),))
+        self.assertIsNone(parse_cost("waterbend {X}"))
+        for name in ("Water Whip", "Benevolent River Spirit"):
+            self.assertEqual(self.db.get(name).unsupported, [], name)
+
+    def test_waterbend_with_mana_only(self):
+        g, a, b, _, (bear, giant) = self.game(["Island"] * 7, (), ["Grizzly Bears", "Hill Giant"])
+        whip = self.db.get("Water Whip")
+        a.hand.append(whip)
+        self.assertTrue(g.cast(a, whip, [bear, giant, None]))
+        g.settle()
+        self.assertEqual(sum(x.tapped for x in a.battlefield), 7)          # {U}{U} + {5}
+        self.assertNotIn(bear, b.battlefield)
+
+    def test_waterbend_taps_artifacts_and_creatures(self):
+        g, a, b, helpers, (bear, giant) = self.game(["Island"] * 4, ["Ornithopter", "Ornithopter", "Grizzly Bears"],
+                                                     ["Grizzly Bears", "Hill Giant"])
+        whip = self.db.get("Water Whip")
+        a.hand.append(whip)
+        self.assertTrue(g.can_cast_now(a, whip))                            # 4 lands + 3 helpers >= 7
+        self.assertTrue(g.cast(a, whip, [bear, giant, None]))
+        g.settle()
+        self.assertTrue(all(x.tapped for x in helpers))
+        self.assertEqual(sum(x.tapped for x in a.battlefield if x.card.is_land), 4)
+
+    def test_waterbend_too_little(self):
+        g, a, b, _, (bear,) = self.game(["Island"] * 4, ["Ornithopter"], ["Grizzly Bears"])
+        whip = self.db.get("Water Whip")
+        a.hand.append(whip)
+        self.assertFalse(g.can_cast_now(a, whip))                           # 4 + 1 < 7
+
+    def test_ai_casts_benevolent_river_spirit_with_waterbend(self):
+        g, a, b, helpers, _ = self.game(["Island"] * 4, ["Ornithopter", "Ornithopter", "Ornithopter"])
+        a.hand = [self.db.get("Benevolent River Spirit")]
+        a.ai.main_phase(g, a)
+        g.settle()
+        self.assertIn("Benevolent River Spirit", [x.card.name for x in a.battlefield])
+        self.assertTrue(all(x.tapped for x in helpers))
+
 if __name__ == "__main__":
     unittest.main()

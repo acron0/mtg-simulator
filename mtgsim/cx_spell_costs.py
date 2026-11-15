@@ -35,7 +35,7 @@ from .cards.model import parse_mana_cost
 
 _NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 _Q = r"(a|an|one|two|three|four|five|six|seven)"
-_VERB = r"(?:sacrifice|discard|pay|exile|return|tap|put|reveal|blight|forage)\b"
+_VERB = r"(?:sacrifice|discard|pay|exile|return|tap|put|reveal|blight|forage|waterbend)\b"
 _TYPES = {"artifacts": "artifact", "creatures": "creature", "lands": "land", "enchantments": "enchantment",
           "planeswalkers": "planeswalker"}
 KEY = "spell_add_cost"
@@ -107,13 +107,17 @@ def _keyword_part(text: str):
         return ("blight", int(m[1]), {})
     if text == "forage":
         return ("forage", 1, {})
+    m = re.fullmatch(r"waterbend \{(\d+)\}", text)
+    if m:     # pay {N}; each untapped artifact or creature you control tapped for it pays {1}
+        return ("waterbend", int(m[1]), {})
     if text == "sacrifice half the lands you control, rounded up":
         return ("sac_half", 0, {"types": ["land"]})
     return None
 
 
-def _pick_keyword(game, p, kind, n, used, avoid):
+def _pick_keyword(game, p, kind, n, used, avoid, card=None):
     """Picks for the #513 parts, or None when they can't be paid."""
+    from .engine.policy import perm_value
     if kind == "blight":     # one creature takes all N: a token or cheap one that survives it, else the cheapest
         pool = [x for x in p.creatures if id(x) not in used]
         if not pool:
@@ -130,6 +134,12 @@ def _pick_keyword(game, p, kind, n, used, avoid):
     if kind == "sac_half":
         lands = _cheap([x for x in p.battlefield if x.card.is_land and id(x) not in used])
         return tuple(lands[:(len(lands) + 1) // 2])
+    if kind == "waterbend":  # helpers that make no mana for the spell; the ones that can't attack now first
+        sources = _mana_sources(game, p, card)
+        pool = [x for x in p.battlefield if not x.tapped and id(x) not in used and id(x) not in sources
+                and (x.is_creature or x.card.is_artifact)]
+        pool.sort(key=lambda x: (any(x is t for t in avoid), x.is_creature and x.can_attack(), perm_value(x)))
+        return tuple(pool[:n])
     return None
 
 
@@ -225,8 +235,8 @@ def _pick(game, p, card, alt, avoid=()):
         if kind in ("mana", "discard_hand"):
             out.append((kind, n, spec, ()))
             continue
-        if kind in ("blight", "forage", "sac_half"):
-            picks = _pick_keyword(game, p, kind, n, used, avoid)
+        if kind in ("blight", "forage", "sac_half", "waterbend"):
+            picks = _pick_keyword(game, p, kind, n, used, avoid, card)
             if picks is None:
                 return None
             used.update(id(x) for x in picks)
@@ -283,7 +293,11 @@ def extra_mana(game, p, card) -> dict:
     chosen = choose(game, p, card)
     if chosen is None:
         return {}
-    return next((dict(spec) for kind, _, spec, _ in chosen[1] if kind == "mana"), {})
+    mana = next((dict(spec) for kind, _, spec, _ in chosen[1] if kind == "mana"), {})
+    for kind, n, _, picks in chosen[1]:
+        if kind == "waterbend" and n > len(picks):        # what the tapped helpers don't cover is paid as mana
+            mana["generic"] = mana.get("generic", 0) + n - len(picks)
+    return mana
 
 
 def add_mana(game, p, card, cost: dict) -> dict:
@@ -305,7 +319,7 @@ def reserved(game, p, card, chosen=None) -> list:
         return []
     out = []
     for kind, _, _, picks in chosen[1]:
-        if kind == "tap":
+        if kind in ("tap", "waterbend"):
             out += list(picks)
         elif kind in ("sac", "sac_all", "exile_bf", "bounce"):
             out += [x for x in picks if consumed_for_mana(x)]
@@ -392,6 +406,14 @@ def pay(game, p, card, chosen) -> tuple | None:
                 for c in picks:
                     game.move_card(c, p.graveyard, p.exile, reason="cost")
                 game.log(f"forages: exiles {[c.name for c in picks]} for {card.name}", p)
+        elif kind == "waterbend":
+            if any(x not in p.battlefield or x.tapped for x in picks):
+                return False
+            for x in picks:
+                x.tapped = True
+                game.fire(p, "becomes_tapped", x)
+            if picks:
+                game.log(f"waterbends: taps {[x.card.name for x in picks]} for {card.name}", p)
         elif kind == "sac_half":
             if any(x not in p.battlefield for x in picks):
                 return False
@@ -459,4 +481,6 @@ def _value(p, picked) -> float:
             value += 0.8 if hasattr(picks[0], "card") else 0.3 * len(picks)
         elif kind == "sac_half":
             value += 1.5 * len(picks)
+        elif kind == "waterbend":       # a creature that could attack is worth a little; the rest is free
+            value += 0.3 * sum(x.is_creature and x.can_attack() for x in picks)
     return value

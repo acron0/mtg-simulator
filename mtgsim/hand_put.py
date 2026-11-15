@@ -244,6 +244,8 @@ def candidates(game, p, eff, item) -> list:
             continue
         if data.get("entry") == "attached" and not _host_ok(game, p, c, src):
             continue
+        if c.aura and data.get("entry") != "attached":
+            continue      # an Aura put without a host choice (303.4f isn't modelled here): not put
         out.append(c)
     return out
 
@@ -313,10 +315,8 @@ def choose_many(game, pl, eff, item) -> list:
     out, names = [], {x.card.name for x in pl.battlefield if x.card.legendary}
     for e, n in groups:
         for _ in range(n):
-            # an Aura put without being cast needs a host chosen as it enters (303.4f): not modelled for these
-            # puts, so the player doesn't put one
             cards = [c for c in candidates(game, pl, e, item) if not any(c is x for x in out)
-                     and not (c.legendary and c.name in names) and not c.aura]
+                     and not (c.legendary and c.name in names)]
             card = game.hook(pl, "choose_hand_put")(game, pl, cards, data.get("entry", "")) if cards else None
             if card is None or not any(card is c for c in cards):
                 break

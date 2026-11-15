@@ -367,6 +367,9 @@ class Resolve(unittest.TestCase):
         self.game.leave_battlefield(researcher, "graveyard")
         self.game.settle()
         self.assertEqual([c.name for c in self.a.hand], ["Test Armor"])
+        anthem = card("Test Anything", "{1}", "Artifact", "{T}: You may put a permanent card from your hand onto the "
+                      "battlefield.")
+        self.assertEqual(hand_put.candidates(self.game, self.a, _eff(anthem), None), [])     # the single put too
 
     def test_sacrificed_at_next_end_step(self):
         accomplice = self.put(ACCOMPLICE, WALKER)
@@ -503,6 +506,9 @@ class Many(unittest.TestCase):
         self.resolve(SHOW)
         self.assertEqual(self.names(self.a), ["Test Rock"])
         self.assertEqual([c.name for c in self.a.hand], ["Test Armor"])
+        anthem = card("Test Anything", "{1}", "Artifact", "{T}: You may put a permanent card from your hand onto the "
+                      "battlefield.")
+        self.assertEqual(hand_put.candidates(self.game, self.a, _eff(anthem), None), [])     # the single put too
 
     def test_declined_and_empty(self):
         self.b.ai.choose_hand_put = lambda game, me, cards, entry: None

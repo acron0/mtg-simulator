@@ -113,6 +113,7 @@ class PlayMixin:
         if not self.valid_action_targets(p, effects, targets, card):
             return False
         cost = self.cost_of(p, card, assist=False)
+        defiler_life = self._defiler_life[1] if getattr(self, "_defiler_life", (None,))[0] is card else 0
         if card.advanced_rules.get("strive"):        # "costs {1}{W} more for each target beyond the first"
             from ..cx_multi_target import strive_cost
             cost, targets = strive_cost(self, p, card, effects, targets, cost)
@@ -167,6 +168,8 @@ class PlayMixin:
             self.change_life(p, -alt.life, f"{card.name}: alternative cost")
         if card.extra_life_cost:
             self.change_life(p, -card.extra_life_cost, f"{card.name}: additional cost")
+        if defiler_life:
+            self.change_life(p, -defiler_life, f"{card.name}: additional cost (Defiler)")
         sac_stats = None
         if plan.sacrifice is not None:
             victim = plan.sacrifice

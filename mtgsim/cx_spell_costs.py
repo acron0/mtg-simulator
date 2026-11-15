@@ -38,7 +38,7 @@ _NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "
 _Q = r"(a|an|one|two|three|four|five|six|seven|X|any number of)"
 # kinds whose count may be X (chosen as the spell is cast) or "any number of"
 _COUNTED = {"discard": "xa", "discard_random": "x", "life": "x", "sac": "xa", "bounce": "xa", "tap": "xa",
-            "exile_gy": "xa"}
+            "exile_gy": "xa", "exile_hand": "a", "rm_p1": "a"}
 _VERB = r"(?:sacrifice|discard|pay|exile|return|tap|put|reveal) "
 _TYPES = {"artifacts": "artifact", "creatures": "creature", "lands": "land", "enchantments": "enchantment",
           "planeswalkers": "planeswalker"}
@@ -74,6 +74,12 @@ def _part(text: str):
     m = re.fullmatch(rf"discard {_Q} cards?( at random)?", text)
     if m:
         return ("discard_random" if m[2] else "discard", _NUM[m[1]], {})
+    if text == "remove any number of +1/+1 counters from among creatures you control":
+        return ("rm_p1", "any", {})
+    m = re.fullmatch(rf"exile {_Q} (.+? cards?) from your hand", text)
+    if m:
+        spec = _filter(re.sub(r" cards$", " card", m[2]), False)
+        return None if spec is None or "card" not in spec.get("types", ()) else ("exile_hand", _NUM[m[1]], spec)
     m = re.fullmatch(rf"exile {_Q} (?:(.+?) )?cards? from your graveyard", text)
     if m:
         spec = _filter(m[2] + " card", False) if m[2] else {}
@@ -115,7 +121,26 @@ def parse_cost(text: str):
     return tuple(alts)
 
 
-def parse_line(line: str, extra: dict) -> bool:
+_COLOR = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+DEFILER = "defiler"
+
+
+def parse_line(line: str, extra: dict, mana_cost=None) -> bool:
+    d = re.fullmatch(r"As an additional cost to cast (white|blue|black|red|green) permanent spells, you may pay 2 life\. "
+                     r"Those spells cost \{([WUBRG])\} less to cast if you paid life this way\. This effect reduces "
+                     r"only the amount of \1 mana you pay\.", line)
+    if d and _COLOR[d[1]] == d[2]:       # the Defilers: a static on the permanent for its controller's spells
+        extra.setdefault("advanced_rules", {})[DEFILER] = d[2]
+        return True
+    line = re.sub(r"^[A-Z][\w' ]* — ", "", line)          # an ability word ("Frenzied Metabolism — ")
+    o = re.fullmatch(r"As an additional cost to cast (?:~|this spell), you may ([^.]+)\. (?:~|This spell) costs "
+                     r"\{(\d+)\} less to cast for each [^.]+ this way\.", line)
+    if o:      # optional "any number of", each unit paying {N} of the generic cost (Torgaar, the Marches)
+        part = _part(o[1])
+        if part is None or part[1] != "any" or "X" in (mana_cost or {}):
+            return False     # with {X}: the engine pays X after the reduction, so it couldn't lower X (the Marches)
+        extra.setdefault("advanced_rules", {})[KEY] = (((part[0], "any", dict(part[2], reduce=int(o[2]))),),)
+        return True
     m = re.fullmatch(r"As an additional cost to cast (?:~|this spell), (.+)\.", line)
     if not m:
         return False
@@ -152,7 +177,9 @@ def _candidates(game, p, card, kind, spec):
         return [x for x in p.battlefield if not x.tapped and _card_ok(x.card, spec, x)]
     if kind == "m1_counter":
         return [x for x in p.battlefield if x.is_creature and _card_ok(x.card, spec, x)]
-    if kind in ("discard", "reveal"):        # never the spell's own physical card
+    if kind == "rm_p1":            # one unit per +1/+1 counter
+        return [x for x in p.battlefield if x.is_creature for _ in range(x.counters.get("+1/+1", 0))]
+    if kind in ("discard", "reveal", "exile_hand"):        # never the spell's own physical card
         own = p.hand.get(base) if base in p.hand else None
         return [c for c in p.hand if c is not own and c is not card and c is not base and
                 (not spec or _card_ok(c, spec))]
@@ -183,7 +210,8 @@ def _pick(game, p, card, alt, avoid=()):
     for kind, n, spec in alt:
         if not isinstance(n, int):          # X / "any number of": chosen now (601.2b)
             pool = [] if kind in ("life", "discard_random") else \
-                [x for x in _cheap(_candidates(game, p, card, kind, spec)) if id(x) not in used]
+                [x for x in _candidates(game, p, card, kind, spec) if id(x) not in used]
+            pool = pool if kind == "rm_p1" else _cheap(pool)
             if kind == "discard_random":
                 pool = list(_candidates(game, p, card, "discard", spec))
             if n == "any":              # "any number of": never the spell's own targets
@@ -192,7 +220,8 @@ def _pick(game, p, card, alt, avoid=()):
                 pool.sort(key=lambda x: any(x is t for t in avoid))       # stable: targets last
             k = choose_count(game, p, card, kind, spec, pool, n)
             picks = tuple(pool[:k]) if kind not in ("life", "discard_random") else ()
-            used.update(id(x) for x in picks)
+            if kind != "rm_p1":
+                used.update(id(x) for x in picks)
             out.append((kind, k, dict(spec, counted=n), picks))
             continue
         if kind == "life":
@@ -248,6 +277,10 @@ def choose_count(game, p, card, kind, spec, pool, mode) -> int:
     limit = min(10, p.life - 1 if kind == "life" else len(pool))
     if kind == "life" and _life_locked(p):
         limit = 0
+    if mode == "any" and spec.get("reduce"):
+        # pay only as many units as the mana needs (cheapest first): "costs {N} less for each ... this way"
+        need = sum(v for k, v in card.mana_cost.items() if k != "X") - len(game.mana_sources(p, spell=card))
+        return min(limit, -(-need // spec["reduce"])) if need > 0 else 0
     if mode == "any":
         return sum(1 for x in pool[:limit] if _unit_cheap(x))
     plan = getattr(p.ai, "plan_spell", None)
@@ -317,6 +350,14 @@ def extra_mana(game, p, card) -> dict:
     if chosen is None:
         return {}
     return next((dict(spec) for kind, _, spec, _ in chosen[1] if kind == "mana"), {})
+
+
+def reduction(game, p, card) -> int:
+    """Generic mana paid by the cost's units ("costs {2} less to cast for each creature sacrificed this way")."""
+    if not alternatives(card):
+        return 0
+    chosen = choose(game, p, card)
+    return sum(spec.get("reduce", 0) * k for _, k, spec, _ in chosen[1]) if chosen else 0
 
 
 def add_mana(game, p, card, cost: dict) -> dict:
@@ -447,7 +488,45 @@ def pay(game, p, card, chosen) -> tuple | None:
             game.log(f"exiles {[c.name for c in picks]} from their graveyard for {card.name}", p)
         elif kind == "reveal":
             game.log(f"reveals {picks[0].name} for {card.name}", p)
+        elif kind == "exile_hand":
+            for c in picks:
+                if c not in p.hand:
+                    return False
+                game.move_card(c, p.hand, p.exile, reason="cost")
+            if picks:
+                game.log(f"exiles {[c.name for c in picks]} from hand for {card.name}", p)
+        elif kind == "rm_p1":
+            for x in picks:
+                if x not in p.battlefield or x.counters.get("+1/+1", 0) < 1:
+                    return False
+                x.counters["+1/+1"] -= 1
+            if picks:
+                game.log(f"removes {len(picks)} +1/+1 counters for {card.name}", p)
     return sac_stats
+
+
+def defiler_discount(game, p, card, cost: dict) -> dict:
+    """The Defilers (601.2b/f): for each one p controls whose colour the permanent spell has, p may pay 2 life to
+    pay one {C} less (colored only). The AI pays only when the spell isn't payable otherwise and stays above 5
+    life. The decision is kept on game._defiler_life for Game.cast, which pays the life."""
+    game._defiler_life = (card, 0)
+    if not card.is_permanent or card.is_land or getattr(card, "spell_copy", False) or getattr(card, "is_ability", False):
+        return cost
+    colors = [x.card.advanced_rules.get(DEFILER) for x in p.battlefield
+              if not x.abilities_suppressed and (x.card.advanced_rules or {}).get(DEFILER)]
+    colors = [c for c in colors if c in card.colors]
+    if not colors or _life_locked(p):
+        return cost
+    from .engine.mana import payable as mana_payable
+    sources = game.mana_sources(p, spell=card)
+    out, life = dict(cost), 0
+    for c in colors:
+        if mana_payable(sources, out) or not out.get(c) or p.life - life - 2 <= 5:
+            break
+        out[c] -= 1
+        life += 2
+    game._defiler_life = (card, life)
+    return out
 
 
 def to_item(game, item, chosen):
@@ -487,4 +566,8 @@ def _value(p, picked) -> float:
             value += 0.25 * n + max(0, 8 - max(0, p.life - n)) if n else 0.0
         elif kind == "tap":
             value += 0.2 * n
+        elif kind == "exile_hand":
+            value += 1.0 * len(picks)
+        elif kind == "rm_p1":
+            value += 0.6 * len(picks)
     return value

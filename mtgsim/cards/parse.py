@@ -967,6 +967,8 @@ def _parse_trigger_line(line: str):
             flt = "blocks_flying"
         if events == ("cast_instant_sorcery",) and "that targets a creature" in pat:
             flt = "targets_creature"
+        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"it deals \w+ damage to [^.]* and ", rest):
+            rest = "~" + rest[2:]       # "When ~ enters, it deals 4 damage to any target and 2 damage to you" (#320)
         if events in (("targeted_mine",), ("dealt_damage",)):
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("cast_cmc",):

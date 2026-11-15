@@ -263,3 +263,4 @@ from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
 from .. import damage_reorder as _damage_reorder  # noqa: E402
 _SUBS += _damage_reorder.SUBS
+_EFFECT_PATTERNS += _damage_reorder.EFFECT_PATTERNS

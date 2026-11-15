@@ -42,3 +42,15 @@ def rewrite(events, line: str, rest: str) -> str:
         if not plain or _HOSTILE.search(rest):
             return "you may have ~" + rest[len("you may have it"):]
     return rest
+
+
+def activated_it(cost_text: str, body: str):
+    """"Remove an indestructible counter from ~: It deals 7 damage to each of up to three targets." (Myojin of Roaring
+    Blades, #320): a leading "it" in an activated ability names its source, the only object the line mentions. When
+    the cost names another object ("Sacrifice a creature", "Exile a card from your graveyard", "Discard a card") "it"
+    could be that one, so the body is left alone. Returns the rewritten body, or None."""
+    if not re.match(r"It deals \w+ damage\b", body) or re.search(
+            r"\b(?:sacrifice|exile|discard|return|tap|untap|put) (?:a|an|another|two|three|x|one or more|any number of)\b",
+            cost_text, re.I):
+        return None
+    return "~" + body[2:]

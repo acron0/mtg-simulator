@@ -39,8 +39,11 @@ class SeveralTargets(unittest.TestCase):
                 self.assertEqual(len(c.spell_effects), 2)
                 self.assertTrue(all(e.data.get("distinct") for e in c.spell_effects))
 
-    def test_compound_target_noun_stays_unsupported(self):
-        self.assertEqual(len(LONE.unsupported), 1)
+    def test_compound_target_noun_is_two_distinct_slots(self):
+        # each target is "a creature or planeswalker" (cx_multi_target reads "and/or" for one object, #312)
+        self.assertEqual(LONE.unsupported, [])
+        self.assertEqual([(e.kind, e.target, e.data.get("distinct")) for e in LONE.spell_effects],
+                         [("destroy", "creature_pw", True)] * 2)
 
     def test_damage_hits_both_targets(self):
         self.cast(BOLTS, [self.one, self.two])

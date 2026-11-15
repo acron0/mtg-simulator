@@ -41,11 +41,13 @@ def _parse_effects(text: str, opts: bool = False):
     from ..permanent_templates import split_sentences
     from ..cx_next_turn import mark, rewrite
     pending = None
+    starts: list = []
     sentences = list(split_sentences(text.strip()))
     for index, sentence in enumerate(sentences):
         s = sentence.strip().rstrip(".").strip()
         if not s:
             continue
+        starts.append(len(effects))  # where each sentence's effects begin ("instead" replaces the one before)
         mark(effects, pending)       # "until your next turn" / "player or planeswalker" (cx_next_turn)
         s, kind = rewrite(s)
         pending = (len(effects), kind) if kind else None
@@ -90,6 +92,9 @@ def _parse_effects(text: str, opts: bool = False):
                 effects[-1].kind in ("destroy", "wrath", "wrath_pw", "selected_mass_move", "group_remove",
                                      "destroy_all", "destroy_group"):
             effects[-1] = dataclasses.replace(effects[-1], data=dict(effects[-1].data, no_regen=True))
+            continue
+        from ..cx_multi_target import no_regen_rider
+        if no_regen_rider(s, effects):      # "Destroy any number of target creatures. They can't be regenerated."
             continue
         if re.fullmatch(r"if that spell is countered this way, exile it instead of putting it into its owner's graveyard", s,
                         re.I) and effects and effects[-1].kind == "counter":
@@ -281,10 +286,11 @@ def _parse_effects(text: str, opts: bool = False):
                 continue
         mi = re.fullmatch(r"if (.+?), (.+)", s, re.I)
         if mi:
+            from ..cx_grammar_cond import if_body as _if_body
             cond = _if_cond(mi[1])
             if cond:
                 for body in (mi[2], re.sub(r"^you ", "", mi[2])):
-                    new, bad = _parse_effects(body[0].upper() + body[1:] + ".")
+                    new, bad = _if_body(body)     # "B instead" is read whole, not by a template
                     if new and not bad:
                         base = cond[1:] if cond.startswith("!") else cond
                         # a source fact ("~ has fewer than three charge counters on it", "~ didn't
@@ -359,7 +365,7 @@ def _parse_effects(text: str, opts: bool = False):
             if eff.data.get("unparsed_token_keywords"):
                 unmatched.append("Unsupported token keywords: " + ", ".join(eff.data["unparsed_token_keywords"]))
     from ..cx_grammar_cond import resolve_instead
-    unmatched += resolve_instead(effects)      # "If C, B instead": the effects B replaces get "not C"
+    unmatched += resolve_instead(effects, starts)    # "If C, B instead": the effects B replaces get "not C"
     mark(effects, pending)
     return effects, unmatched
 
@@ -377,6 +383,9 @@ def _split_compound(s: str):
             continue
         if sep == r" and " and _OTHER_SUBJECT.match(pieces[0]) and _VERB_S.match(pieces[1]):
             continue    # "Target player loses 2 life and mills two cards": the second verb is that player's too
+        if re.match(r"(?:until end of turn, )?any number of (?:other )?target .+? each ", pieces[0], re.I) and \
+                not re.match(r"(?:you|target|each|that|its?|they)\b", pieces[1], re.I):
+            continue    # "Any number of target players each mill a card and lose 1 life": the chosen players' verbs (#391)
         if sep == r" and " and " unless " in pieces[0].lower():
             continue    # "... unless you sacrifice a land and pay 2 life": one compound cost, never two effects (#330)
         if re.search(r", where X is ", pieces[1], re.I) and re.search(r"\bX\b", pieces[0]):
@@ -625,7 +634,8 @@ def _parse_face(data: dict) -> CardDef:
                 extra.setdefault("advanced_rules", {})["kick_counters"] = _num(m[1])
                 continue
             if re.search(r"\binstead\b", k):
-                if not _kicker_instead(kicked_effects, k):
+                from ..cx_grammar_cond import kicked_instead
+                if not _kicker_instead(kicked_effects, k) and not kicked_instead(kicked_effects, k):
                     unsupported.append(f"if kicked: {k}")
                 continue
             effs, bad = _parse_effects(k)

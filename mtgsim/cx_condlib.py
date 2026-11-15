@@ -202,6 +202,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
         return False
     if "mv" in spec and not _cmp(card.cmc, *spec["mv"]):
         return False
+    if spec.get("toxic") and not getattr(card, "toxic", 0):
+        return False
     if spec.get("snow") and not getattr(card, "snow", False):
         return False
     if spec.get("historic") and not (card.is_artifact or card.legendary or getattr(card, "is_saga", False)):
@@ -216,6 +218,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
         if "kw" in spec and not perm.has(spec["kw"]):
             return False
         if "counter" in spec and not perm.counters.get(spec["counter"], 0):
+            return False
+        if "counters" in spec and not _cmp(perm.counters.get(spec["counters"][0], 0), *spec["counters"][1:]):
             return False
         if "toughness" in spec and not _cmp(perm.toughness, *spec["toughness"]):
             return False
@@ -575,6 +579,32 @@ def _src_damaged_player(m):
 @rule(r"(?:it's|it is|that creature is|that permanent is) (?P<c>white|blue|black|red|green)")
 def _prev_color(m):
     return _code("prev_is", {"colors": [_COLORS[m["c"].lower()]]})
+
+
+@rule(r"(?:it's|it is|that creature is|that permanent is) (?P<a>white|blue|black|red|green) or "
+      r"(?P<b>white|blue|black|red|green)")
+def _prev_color_or(m):
+    """"If that creature is white or blue, ...": the previous effect's object has either colour."""
+    return _code("prev_is", {"any_color": [_COLORS[m["a"].lower()], _COLORS[m["b"].lower()]]})
+
+
+@rule(r"(?:it|that creature|that permanent) has (?P<kw>[a-z ]+)")
+def _prev_keyword(m):
+    """"If that creature has flying, ...": a keyword of the previous effect's object (toxic is a number on the card)."""
+    from .cx_grammar import keyword_list
+    if m["kw"].lower() == "toxic":
+        return _code("prev_is", {"toxic": True})
+    kws = keyword_list(m["kw"])
+    return _code("prev_is", {"kw": kws[0]}) if kws and len(kws) == 1 and " or " not in m["kw"] and \
+        " and " not in m["kw"] else ""
+
+
+@rule(rf"(?:that creature|that permanent) has (?P<q>a|an|one|{_NUM} or more) (?P<c>\+1/\+1|-1/-1|[a-z]+) counters? on it")
+def _prev_counters(m):
+    """"If that creature has a +1/+1 counter on it" / "two or more +1/+1 counters on it": the previous effect's
+    object (a target), not the source."""
+    op, n = (">=", 1) if m["q"].lower() in ("a", "an", "one") else _quant(m["q"])
+    return _code("prev_is", {"counters": [m["c"].lower(), op, n]})
 
 
 @rule(rf"(?:~|it)(?:'s| is| has)? (?:power|toughness) (?:is )?(?P<n>{_NUM}) or (?P<d>greater|more|less)")

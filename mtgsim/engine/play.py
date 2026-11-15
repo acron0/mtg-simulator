@@ -298,6 +298,8 @@ class PlayMixin:
             if source is not None:
                 source.grave_cast_turn = self.turn
         item.snow_spent = sum(1 for s in payment if s.card.snow)
+        from ..cx_spent import source_counts
+        item.mana_from = source_counts(payment)          # "if mana from a Treasure was spent to cast it"
         item.x = x
         item.kicks = kicks
         item.teamwork = teamwork_paid

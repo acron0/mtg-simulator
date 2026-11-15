@@ -620,6 +620,15 @@ def _target_stat_le(m):
     return _code("tgt_stat_le", m["stat"].lower(), list(spec)) if spec else ""
 
 
+@rule(rf"(?:(?P<n>{_NUM}) or more )?mana from (?P<src>an? [A-Za-z]+(?: source)?|[A-Za-z]+) (?:was|were) spent to "
+      r"cast (?:~|it|this spell)")
+def _mana_from(m):
+    """"if mana from a Treasure was spent to cast it" / "three or more mana from creatures was spent" (cx_spent)."""
+    from .cx_spent import source_kind
+    kind = source_kind(m["src"])
+    return _code("mana_from", kind, _n(m["n"]) if m["n"] else 1) if kind else ""
+
+
 @rule(rf"(?P<q>a|one or more|{_NUM} or more) cards? left your graveyard this turn")
 def _cards_left_graveyard(m):
     q = m["q"].lower()
@@ -1258,6 +1267,8 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         if kind == "mana_ncolors":
             return len(set(getattr(src, "mana_colors", ())) & set("WUBRG")) >= args[0]
         return max((n for c, n in getattr(src, "mana_by_color", {}).items() if c in "WUBRG"), default=0) >= args[0]
+    if kind == "mana_from":
+        return getattr(_paid(item, source), "mana_from", {}).get(args[0], 0) >= args[1]
     if kind == "mana_color":
         src = _paid(item, source)
         return getattr(src, "mana_by_color", {}).get(args[0], 0) >= args[1]

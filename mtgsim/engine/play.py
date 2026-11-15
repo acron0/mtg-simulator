@@ -288,6 +288,7 @@ class PlayMixin:
         item.evidence = self.collect_evidence(p, card)
         item.emerged_toughness = getattr(self, "_emerge_toughness", None) if kind == "emerge" else None
         item.sac_stats = sac_stats
+        item.behold_exiled = list(getattr(self, "_add_cost_exiled", ())) if add_cost is not None else []
         if exiled_gy is not None:    # for ("exiled_gy", "power") and friends (Corpse Lunge)
             item.exiled_gy_stats = (int(exiled_gy.power or 0), int(exiled_gy.toughness or 0), exiled_gy.cmc)
         item.bargained = bool(card.bargain) and self.pay_bargain(p, card)

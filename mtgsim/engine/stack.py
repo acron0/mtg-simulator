@@ -450,6 +450,7 @@ class StackMixin:
             if kind == "warp":
                 perm.warped = True
             perm.was_cast = True
+            perm.exiled_to_hand += getattr(item, "behold_exiled", [])     # "behold ... and exile it" (#342)
             perm.cast_turn = getattr(item, "cast_turn", None)
             perm.kicks = getattr(item, "kicks", 0)
             perm.emerged_toughness = getattr(item, "emerged_toughness", None)

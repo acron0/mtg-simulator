@@ -194,11 +194,17 @@ def _plan(tail, single):
     m = re.fullmatch(rf"(?:,|,? and) (?:then )?exiles? {_PRONOUN}(?P<shuffle>,? (?:and )?then shuffles?)?", t, re.I)
     if m:
         return [["exile", None, False]], "after" if m["shuffle"] else ""
-    m = re.fullmatch(r"(?:,|,? and) puts? (one|two) onto the battlefield( tapped)? and the (?:other|rest) "
-                     r"into (?:your|their) hand(?P<shuffle>,? (?:and )?then shuffles?)?", t, re.I)
-    if m and not single:
-        return [["battlefield", _NUM[m[1].lower()], bool(m[2])], ["hand", None, False]], \
-            "after" if m["shuffle"] else ""
+    split_dest = r"(into (?:your|their) hand|into (?:your|their) graveyard|onto the battlefield( tapped)?)"
+    m = re.fullmatch(rf"(?:,|,? and) puts? (one|two)(?: of them)? {split_dest} and the (?:other|rest) "
+                     rf"(into (?:your|their) hand|into (?:your|their) graveyard)(?P<shuffle>,? (?:and )?then shuffles?)?",
+                     t, re.I)
+    if m and not single:      # "put one into your hand and the other into your graveyard" (Fork in the Road)
+        def dest(text):
+            return "battlefield" if text.lower().startswith("onto") else text.lower().rsplit(" ", 1)[1]
+        first, other = dest(m[2]), dest(m[4])
+        if first == other:
+            return None
+        return [[first, _NUM[m[1].lower()], bool(m[3])], [other, None, False]], "after" if m["shuffle"] else ""
     m = re.fullmatch(rf",? (?:and )?then shuffles? and puts? {_PRONOUN} on top(?: of (?:your|their) library)?"
                      rf"(?P<order> in any order)?", t, re.I)
     if m:
@@ -290,6 +296,12 @@ def _build(m):
 # "Sacrifice any number of lands[ you control]. Search your library for up to that many land cards, ..." (Scapeshift,
 # Genesis Device): "that many" is the count just sacrificed; marked so the search sentence knows its antecedent.
 SUBS = [
+    # "Search your library for up to two X cards [and reveal them]. Put one into your hand and the other into your
+    # graveyard[, then shuffle]." (Fork in the Road, Final Parting, Flourishing Bloom-Kin): one sentence for parse
+    (re.compile(r"\b(search your library for (?:up to )?two [^.]+?)(?: and reveal them)?\. "
+                r"(put one(?: of them)? (?:into your hand|into your graveyard|onto the battlefield(?: tapped)?) and the "
+                r"other (?:into your hand|into your graveyard))", re.I),
+     lambda m: m[1] + ", " + m[2][0].lower() + m[2][1:]),
     (re.compile(r"\b(sacrifice any number of [a-z ,/]+?)(?:\.|, then) search your library for up to that many\b", re.I),
      lambda m: m[1] + ". Search your library for up to that-many-sacrificed"),
 ]

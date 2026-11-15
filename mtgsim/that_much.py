@@ -34,7 +34,13 @@ def _that_much(kind, **kw):
 
 def _damage(m):
     from .cards import Effect
-    who = m[1]
+    who = m[2]
+    if who == "each other opponent":    # the opponents but the one just damaged: none in a two-player game
+        return Effect("cx_damage", 0, data={"that_much": True, "source": _src(m[1]), "side": "theirs",
+                                            "who": "other_opponents"})
+    if who == "each opponent":      # untargeted: hexproof doesn't stop it, every opponent is hit (#484)
+        return Effect("cx_damage", 0, data={"that_much": True, "source": _src(m[1]), "side": "theirs",
+                                            "who": "opponents"})
     if who == "each player":
         return Effect("damage_each_player", 0, data={"that_much": True})
     if who == "you":            # damage to the controller, dealt by the source, so prevention and lifelink apply
@@ -46,13 +52,53 @@ def _damage(m):
     return Effect("damage", 0, target=target, data=data)
 
 
+def _src(word: str) -> str:
+    """The damage source: "~" the trigger's own permanent, "it" / "that creature" the creature it triggered on."""
+    return "self" if word.lower() in ("~", "he", "she") else "prev"
+
+
+def _referent_damage(m):
+    """"<source> deals that much damage to that creature / its controller / that creature's controller" (#315):
+    the recipient is the creature the trigger fired on, or its controller. "its" names the source when the source
+    is "it", else the creature the trigger fired on (Spiteful Shadows, Guilty Conscience, Backlash-style riders)."""
+    from .cards import Effect
+    data = {"that_much": True, "source": _src(m[1]), "side": "theirs"}
+    if m[2].lower().startswith("its "):
+        data["ref_subject"] = True      # "its" is the creature the head names, even when that is ~ itself
+    if m[2].lower() in ("that creature", "it"):
+        if data["source"] == "prev":
+            return NO_MATCH_()           # "it deals that much damage to it": no
+        return Effect("cx_damage", 0, target="prev", data=data)
+    return Effect("cx_damage", 0, data=dict(data, who="controller"))
+
+
+def NO_MATCH_():
+    from .cards.model import NO_MATCH
+    return NO_MATCH
+
+
+def _controller_life(m):
+    """"its controller / that creature's controller gains (loses) that much life": the controller of the creature
+    the trigger fired on (Essence Sliver, Visions of Brutality)."""
+    from .cards import Effect
+    kind = "gain_life" if m[2].lower().startswith("gain") else "lose_life"
+    data = {"that_much": True}
+    if m[1].lower() == "its":
+        data["ref_subject"] = True      # the head's subject: Essence Sliver's own damage gains its controller life
+    return Effect(kind, 0, target="that_controller", data=data)
+
+
 EFFECT_PATTERNS = [
+    (r"(its|that creature's) controller (gains|loses) that much life", _controller_life),
+    (r"(~|it|that creature) deals that much damage to (that creature|it|its controller|that creature's controller)",
+     _referent_damage),
     (r"you gain that much life", _that_much("gain_life")),
     (r"you lose that much life", _that_much("lose_life")),
     (r"draw that many cards", _that_much("draw")),
     (r"discard that many cards", _that_much("discard")),
     (r"(?:target|each) opponent loses that much life", _that_much("drain", target="each_opponent")),
-    (_SRC + r" deals that much damage to (any target|any other target|you|target opponent|target player|each opponent|each player|target creature)", _damage),
+    (r"(~|it|he|she) deals that much damage to (any target|any other target|you|target opponent|target player|"
+     r"each opponent|each other opponent|each player|target creature)", _damage),
 ]
 
 TRIGGERS = [

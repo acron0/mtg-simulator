@@ -195,6 +195,14 @@ def selector(text, *, plural=False):
         result['other'] = True
         text = text.split(' ', 1)[1]
     text = re.sub(r'^(?:a|an) ', '', text, flags=re.I)
+    # "creatures named Paper Tiger", "other creatures you control named ~", "creature named ~ you control" (#314):
+    # a name, read up to a controller / zone phrase or the end ("~" is the source's own name)
+    text = re.sub(r" on the battlefield( named .+)$", r"\1", text)    # "other creature on the battlefield named ~"
+    named = re.search(r" named (~|[A-Z][\w'-]*(?:,? (?:[A-Z][\w'-]*|of|the|and|de|la|to|from|in))*)"
+                      r"(?=$| you control| an opponent controls| on the battlefield)", text)
+    if named:
+        result['name'] = named[1]
+        text = text[:named.start()] + text[named.end():]
     for scope, label in ((" you own", 'mine'), (" an opponent owns", 'opp')):
         if scope in text.lower():
             if 'owner' in result or text.lower().count(scope) != 1:
@@ -314,6 +322,16 @@ def scope_player(game, scope):
     return attacked if isinstance(attacked, Player) else None
 
 
+def _named(permanent, name, source) -> bool:
+    """"named ~": the source's own name (its card's, so a copy of it counts); else the printed name."""
+    if name == "~":
+        card = getattr(source, "card", source)
+        name = getattr(card, "name", None)
+        if name is None:
+            return False
+    return permanent.card.name == name or getattr(permanent.card, "front_name", None) == name
+
+
 def matches(game, permanent, spec, controller, source=None):
     if 'cx_desc' in spec:            # a richer noun phrase (mtgsim.cx_grammar)
         from .cx_grammar import desc_matches
@@ -323,6 +341,8 @@ def matches(game, permanent, spec, controller, source=None):
         if tuple(spec['base_pt']) != base_pt(permanent):
             return False
     if spec.get('other') and permanent is source:
+        return False
+    if 'name' in spec and not _named(permanent, spec['name'], source):
         return False
     scoped = scope_player(game, spec['scope']) if spec.get('scope') else None
     if scoped is not None:

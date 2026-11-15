@@ -123,7 +123,7 @@ def variants(game, p, card) -> list:
         code, parts = rules[int(a.kind[9:])]
         if code and not game.check_cond(p, Effect("alt", cond=code), None, None):
             continue
-        if not _payable(game, p, card, parts) or a.life and p.life <= a.life:
+        if not _payable(game, p, card, parts) or a.life and p.life < a.life:
             continue
         if parts:
             if normal is None:

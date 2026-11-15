@@ -75,11 +75,15 @@ def bounce(game, p, target, eff=None, item=None, **_):
 
 def _from_graveyard(game, perm):
     """"When ~ dies / is put into a graveyard from the battlefield, return it to its owner's hand" (Rancor,
-    Immortal Phoenix): the trigger finds the card it became in the graveyard (CR 400.7), if it is still there."""
+    Immortal Phoenix): the trigger finds the card it became in the graveyard (CR 400.7), if it is still there.
+    Also exile, for "dies or is put into exile from the battlefield, return it to its owner's hand"."""
+    if not isinstance(perm, Permanent):
+        return
     card = getattr(perm, "front", None)
-    if isinstance(perm, Permanent) and getattr(perm, "last_destination", None) == "graveyard" and card is not None \
-            and not card.is_token and card in perm.owner.graveyard:
-        game.move_card(card, perm.owner.graveyard, perm.owner.hand, reason="return")
+    dest = getattr(perm, "last_destination", None)
+    zone = perm.owner.graveyard if dest == "graveyard" else perm.owner.exile if dest == "exile" else None
+    if zone is not None and card is not None and not card.is_token and card in zone:
+        game.move_card(card, zone, perm.owner.hand, reason="return")
         game.log(f"{card.name} returns to its owner's hand", perm.owner)
 
 
@@ -581,6 +585,38 @@ def oring_all(game, eff, item, **_):
     if isinstance(src, Permanent) and src in src.controller.battlefield:
         game.exile_until_leaves(src, [x for pl in game.players for x in pl.battlefield if x is not src and
                                       (x.is_creature or x.card.is_artifact) and x.card.cmc <= eff.amount])
+
+
+@kind("oring_group")
+def oring_group(game, p, eff, item, **_):
+    """"Exile all <group> until ~ leaves the battlefield" (mtgsim.linked_exile): the group as it is on resolution,
+    only while the source is still the same object on the battlefield."""
+    from ...permanent_templates import matches
+    src = item.source if item is not None else None
+    if isinstance(src, Permanent) and src in src.controller.battlefield:
+        game.exile_until_leaves(src, [x for pl in game.players for x in pl.battlefield
+                                      if x is not src and matches(game, x, eff.data["selector"], p, src)])
+        if matches(game, src, eff.data["selector"], p, src):
+            # the source is one of them: it is exiled too, which ends the duration it set at once, so the
+            # others return right away (rule 610.3)
+            game.leave_battlefield(src, "exile")
+
+
+@kind("oring_choose")
+def oring_choose(game, p, eff, item, **_):
+    """"Exile a land you control until ~ leaves the battlefield" (Wormfang Newt): no target; the controller picks
+    one of its own (the default AI: a permanent that gains from re-entering, else its least valuable)."""
+    from ...permanent_templates import matches
+
+    def _rewards_entry(x):
+        return bool(x.card.etb_effects or any(t.event == "etb" for t in x.card.triggers))
+    src = item.source if item is not None else None
+    if not isinstance(src, Permanent) or src not in src.controller.battlefield:
+        return
+    pool = [x for x in p.battlefield if x is not src and matches(game, x, eff.data["selector"], p, src)]
+    if pool:
+        gains = [x for x in pool if not x.card.is_token and _rewards_entry(x)]
+        game.exile_until_leaves(src, [max(gains, key=perm_value) if gains else min(pool, key=perm_value)])
 
 
 @kind("token_copy")

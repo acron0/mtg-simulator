@@ -583,10 +583,13 @@ def clash(game, p, eff, item, opp, **_):
 
 
 @kind("flip_coin")
-def flip_coin(game, p, eff, item, **_):
+def flip_coin(game, p, eff, item, target=None, **_):
     """\"Flip a coin. If you win/lose the flip, <X>\" (chance_templates.py): a fair coin
     decides; the rider (cond \"paid\") runs on the named side of the flip."""
     from ...chance_templates import toss
+    from ..state import Player
+    if eff.target == "that_player" and isinstance(target, Player):
+        p = target          # "that player flips a coin. If they lose the flip, ..." (Planar Chaos)
     n = getattr(item, "x", 0) if eff.data.get("count_x") else eff.amount if eff.data.get("count") else 1
     wins = losses = 0
     while eff.data.get("until_lose") or wins + losses < n:
@@ -595,6 +598,7 @@ def flip_coin(game, p, eff, item, **_):
         losses += int(not won)
         if item is not None:
             item.gate_paid = won != bool(eff.data.get("on_lose"))
+            item.flip_result = won           # conds "flip_won" / "flip_lost" (chance_templates._fold_seq)
         game.log(f"flips a coin and {'wins' if won else 'loses'}", p)
         if won:
             game.fire(p, "you_win_flip")

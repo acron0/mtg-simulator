@@ -234,11 +234,6 @@ def _parse_effects(text: str, opts: bool = False):
                 effects += new
                 continue
         mx = re.fullmatch(r"(.+?),? where X is (.+)", s, re.I)
-        # Named-card counts still lack a name-preserving quantity spec.
-        if mx and re.search(r"\bX\b", mx[1]) and re.search(r"\btarget (?:player|opponent)\b", mx[1], re.I) \
-                and re.search(r"\bnamed\b", mx[2], re.I):
-            unmatched.append(s)
-            continue
         if mx and re.search(r"\bX\b", mx[1]) and _xq(mx[2]):
             spec = _xq(mx[2])
             new, bad = [], True

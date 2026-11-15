@@ -208,6 +208,7 @@ class TempDiscounts(unittest.TestCase):
 
     def test_refusals(self):
         for s in ("The next Foo-thing spell an opponent casts costs {1} less to cast.",
+                  "The next wibbly spell you cast costs {2} less to cast.",     # matched, group unread: kept
                   "The next Dragon spell you cast costs {X} less to cast, where X is the frobs you wibble."):
             self.assertTrue(card("Test", "{1}", "Sorcery", s).unsupported, s)
 

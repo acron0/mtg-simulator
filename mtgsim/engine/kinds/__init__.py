@@ -54,3 +54,4 @@ from . import cx_attach  # noqa: E402,F401  (attach an Aura / Equipment to anoth
 from . import cx_static_cost  # noqa: E402,F401  (one-shot spell-group discounts, #341)
 from . import cx_static_chars  # noqa: E402,F401  ("loses all abilities", #406)
 from . import cx_static  # noqa: E402,F401  (sim-static's small kinds)
+from . import cx_trig_damage  # noqa: E402,F401  (damage triggers from any source, #521)

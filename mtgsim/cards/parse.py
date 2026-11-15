@@ -799,12 +799,12 @@ def _parse_ability_cost(text: str):
             extra["exile_gy_card"] = "card" if m[1] == "card" else m[1] + " card"
         elif (m := re.fullmatch(r"Pay (\d+) life", part)):
             extra["life"] = int(m[1])
-        elif (m := re.fullmatch(r"Remove (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) "
+        elif (m := re.fullmatch(r"Remove (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|X) "
                                r"([\w/+-]+) counters? from ~", part)):
-            if 'remove_counter' in extra or _num(m[1]) < 1:
+            if 'remove_counter' in extra or m[1] != "X" and _num(m[1]) < 1:
                 return None
             extra["remove_counter"] = m[2]
-            extra["remove_counter_count"] = _num(m[1])
+            extra["remove_counter_count"] = "x" if m[1] == "X" else _num(m[1])     # X: the number removed (#345)
         elif (m := re.fullmatch(r"Remove (a|one|two|three|four|five|\d+) \+1/\+1 counters? "
                                r"from among creatures you control", part)):
             n = _num(m[1])
@@ -888,6 +888,9 @@ def _parse_ability(line: str, approximations: list):
     effects, bad = _parse_effects(body)
     if bad or not effects:
         return None
+    if cost[1].get("remove_counter_count") == "x" and not (
+            any(e.data.get("x") for e in effects) and all(e.kind != "die_amount" for e in effects)):
+        return None     # "Remove X ... counters": an effect must read that X (#345)
     approximations += approx
     return Activated("ability", cost[0], effects=effects, extra_costs=cost[1], sorcery=sorcery, once=once, text=original,
                      condition=condition, max_per_turn=limit, any_player=any_player, restrictions=restrictions,

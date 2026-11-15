@@ -108,12 +108,18 @@ class PlayMixin:
             idx = next((i for i, e in enumerate(effects) if e.target in TARGETED), None)
             if tapped and idx is not None and targets[idx] not in tapped:
                 targets[idx] = max(tapped, key=perm_value)
-        missing = [i for i, e in enumerate(effects) if e.target in TARGETED and targets[i] is None]
+        gifted, live = bool(card.gift), list(range(len(effects)))
+        if card.gift:      # promised or not as it is cast: only that mode's effects need targets (#483)
+            from ..gift_choice import active, decide
+            gifted = decide(self, p, card, targets)
+            live = [i for i, e in enumerate(effects) if active(e, gifted)]
+            targets = [t if i in live else None for i, t in enumerate(targets)]
+        missing = [i for i in live if effects[i].target in TARGETED and targets[i] is None]
         if missing:   # targets the AI didn't pick (effects it doesn't know about)
             filled = self.auto_targets(p, effects, card, preset=targets)
             for i in missing:
                 targets[i] = filled[i]
-        if not self.valid_action_targets(p, effects, targets, card):
+        if not self.valid_action_targets(p, [effects[i] for i in live], [targets[i] for i in live], card):
             return False
         cost = self.cost_of(p, card, assist=False)
         if card.advanced_rules.get("target_cost"):    # "costs {2} less to cast if it targets a black permanent"
@@ -311,7 +317,7 @@ class PlayMixin:
         if exiled_gy is not None:    # for ("exiled_gy", "power") and friends (Corpse Lunge)
             item.exiled_gy_stats = (int(exiled_gy.power or 0), int(exiled_gy.toughness or 0), exiled_gy.cmc)
         item.bargained = bool(card.bargain) and self.pay_bargain(p, card)
-        item.gifted = bool(card.gift)
+        item.gifted = gifted
         item.uncounterable = any(s.card.mana_restriction == "chosen_type" and self.mana_allowed(s, card)
                                  for s in payment)
         item.mana_spent = sum(v for k, v in cost.items() if k != "X")

@@ -250,7 +250,12 @@ _SUBS += _time_counters.SUBS
 from .. import capped_counters as _capped_counters
 _EFFECT_PATTERNS += _capped_counters.EFFECT_PATTERNS
 _SUBS += _capped_counters.SUBS
+from .. import card_referent as _card_referent
+_EFFECT_PATTERNS += _card_referent.EFFECT_PATTERNS
 from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
+from .. import cx_exile_play as _cx_exile_play          # "exile the top card of that player's library" (#316)
+_EFFECT_PATTERNS += _cx_exile_play.EFFECT_PATTERNS
+_SUBS += _cx_exile_play.SUBS
 from .. import linked_exile as _linked_exile  # noqa: E402
 _EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS

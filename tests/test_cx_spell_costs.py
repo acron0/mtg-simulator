@@ -208,7 +208,8 @@ class Casting(unittest.TestCase):
         enemy = self.g.enter_battlefield(self.b, BIG)
         self.a.hand = [payment]
         self.a.life = 5
-        self.assertFalse(self.g.can_cast_now(self.a, payment))       # life would hit 0; nothing to sacrifice
+        self.assertTrue(self.g.can_cast_now(self.a, payment))        # CR 119.4: paying the last life is legal (#467)
+        self.assertFalse(self.a.ai._can_cast(self.g, self.a, payment))   # but the AI won't pay itself to 0
         self.a.life = 20
         self.assertTrue(self.g.cast(self.a, payment, [enemy]))
         self.g.settle()

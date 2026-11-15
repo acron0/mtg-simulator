@@ -6,9 +6,9 @@ Dependencies are explicit inputs; Oracle dependency inference is not implemented
 from dataclasses import dataclass, fields
 from .cards import CardDef
 
-LAYERS = {'grant': (6, 0), 'remove': (6, 0), 'set_base': (7, 1),
+LAYERS = {'grant': (6, 0), 'remove': (6, 0), 'lose_all': (6, 0), 'lock': (6, 0), 'set_base': (7, 1),
           'modify': (7, 2), 'switch': (7, 3)}
-LAYERS.update({op: (4, 0) for op in ('set_types', 'add_types', 'remove_types',
+LAYERS.update({op: (4, 0) for op in ('set_types', 'add_types', 'remove_types', 'all_creature_types',
               'set_subtypes', 'add_subtypes', 'remove_subtypes')})
 LAYERS.update({op: (5, 0) for op in ('set_colors', 'add_colors', 'remove_colors')})
 
@@ -110,7 +110,7 @@ def refresh(permanent):
 
 
 def characteristics(permanent, base):
-    effects = [e for e in active(permanent) if e.layer < (6, 0)]
+    effects = [e for e in active(permanent) if e.layer < (6, 0) or e.operation == 'lose_all']
     animation = getattr(permanent, '_animated', None)
     if animation is not None or getattr(permanent, '_crewed', False):
         stamp = max(getattr(permanent, 'animation_timestamp', 0) if animation else 0,
@@ -138,8 +138,15 @@ def characteristics(permanent, base):
     if cached is not None and cached[0] == key:
         return cached[1]
     types, subtypes, colors = base.types, base.subtypes, base.colors
+    lost = every = False
     for effect in ordered(effects):
         operation = effect.operation
+        if operation == 'lose_all':         # layer 6: cx_static_chars.strip (#406)
+            lost = True
+            continue
+        if operation == 'all_creature_types':   # "is every creature type" (#406)
+            every = True
+            continue
         if operation.endswith('types') and not operation.endswith('subtypes'):
             types = (effect.types if operation == 'set_types' else types | effect.types
                      if operation == 'add_types' else types - effect.types)
@@ -152,8 +159,12 @@ def characteristics(permanent, base):
         else:
             colors = (effect.colors if operation == 'set_colors' else colors | effect.colors
                       if operation == 'add_colors' else colors - effect.colors)
-    view = CharacteristicView(**{f.name: getattr(base, f.name) for f in fields(CardDef)})
+    from .cx_static_chars import strip
+    view = CharacteristicView(**(strip(base, subtypes) if lost else {f.name: getattr(base, f.name) for f in fields(CardDef)}))
     view.types, view.subtypes, view.effective_colors = types, subtypes, colors
+    view.lost_all = lost
+    if every:
+        view.changeling = True
     if conditional_colors:
         view.effective_colors = base.colors
         view._color_source = permanent
@@ -225,8 +236,15 @@ def pt(permanent):
 
 def keyword(permanent, kw, initial):
     value = initial
-    for effect in ordered([e for e in active(permanent) if e.layer == (6, 0) and e.keyword == kw]):
+    effects = [e for e in active(permanent) if e.layer == (6, 0) and (e.keyword == kw or e.operation == 'lose_all')]
+    if any(e.operation == 'lock' for e in effects):
+        return False                        # "can't have or gain flying": no grant, whenever, gives it
+    for effect in ordered(effects):
         value = effect.operation == 'grant'
+    lost = [e.timestamp for e in effects if e.operation == 'lose_all']
+    if lost and not value:
+        from .cx_static_chars import granted_after
+        value = granted_after(permanent, kw, max(lost))     # an Equipment attached later still grants it
     return value
 
 

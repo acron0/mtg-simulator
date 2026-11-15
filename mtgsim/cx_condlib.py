@@ -116,10 +116,15 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
     return True
 
 
-def _filter(text: str, plural: bool = True):
+def _filter(text: str, plural: bool = True, names: bool = False):
     """A permanent/card filter from "other untapped legendary creatures with flying", or None."""
-    text = text.strip().replace(",", "")
+    text = text.strip()
     spec: dict = {}
+    named = names and re.fullmatch(r"(.+?) named (~|[A-Z][\w'-]*(?:,? (?:[A-Z][\w'-]*|of|the|and|de|la|to|from|in))*)", text)
+    if named:       # "a creature named Bogbrew Witch", "four or more creatures named ~" (#314)
+        spec["name"] = named[2]
+        text = named[1]
+    text = text.replace(",", "")
     m = re.fullmatch(r"(\d+)/(\d+) (.+)", text)
     if m:                       # "a 1/1 creature" (#325): exact power and toughness
         spec["power"], spec["toughness"] = ["==", int(m[1])], ["==", int(m[2])]
@@ -188,6 +193,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
 
     if any(not has_type(t) for t in spec.get("types", ())):
         return False
+    if "name" in spec and card.name != spec["name"]:      # "~" is resolved by the caller (_count_perms)
+        return False
     if any(has_type(t) for t in spec.get("not", ())):
         return False
     if "any" in spec and not any(has_type(t) for t in spec["any"]):
@@ -246,6 +253,13 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
 
 
 def _count_perms(player, spec, source=None) -> int:
+    name = spec.get("name")
+    if name == "~":         # the source's own name
+        name = getattr(getattr(source, "card", source), "name", None)
+        if name is None:
+            return 0
+    if name is not None:
+        spec = dict(spec, name=name)
     return sum(1 for x in player.battlefield
                if not (spec.get("other") and x is source) and _card_ok(x.card, spec, x))
 
@@ -337,7 +351,7 @@ def rule(pattern: str):
 @rule(rf"you control {_QUANT} (?P<f>.+?)")
 def _you_control(m):
     op, n = _quant(m["q"])
-    f = _filter(m["f"], _plural(m["q"]))
+    f = _filter(m["f"], _plural(m["q"]), names=True)
     if f is None:
         return ""
     if m["q"].lower() == "another":
@@ -345,18 +359,24 @@ def _you_control(m):
     return _code("ctl", "you", f, op, n)
 
 
-@rule(r"you control (?:creatures|permanents|artifacts|lands) named (?P<a>[A-Z][\w' -]+?) and (?P<b>[A-Z][\w' -]+)")
-def _you_control_named(m):
-    """"If you control creatures named Mine Worker and Tower Worker": one permanent by each name."""
-    t = re.match(r"you control (\w+?)s? named", m[0]).group(1).lower()
-    t = "permanent" if t == "permanent" else t
-    return _code("and", *(_code("ctl", "you", {"types": [t], "name": n.strip()}, ">=", 1) for n in (m["a"], m["b"])))
+@rule(r"you control (?P<kind>creatures|artifacts|Equipment|permanents|lands) named (?P<names>.+?)")
+def _you_control_names(m):
+    """"you control creatures named Mine Worker and Power Plant Worker", "artifacts named Crown of Empires and
+    Throne of Empires": one of each (#314)."""
+    names = [n.strip() for n in re.split(r",? and |, ", m["names"]) if n.strip()]
+    kind = {"creatures": "creature", "artifacts": "artifact", "equipment": "Equipment", "permanents": "permanent",
+            "lands": "land"}[
+        m["kind"].lower()]
+    if len(names) < 2 or not all(re.fullmatch(r"~|[A-Z][\w'-]*(?: (?:[A-Z][\w'-]*|of|the))*", n) for n in names):
+        return ""
+    spec = {"sub": ["Equipment"]} if kind == "Equipment" else {"types": [kind]}
+    return _code("and", *(_code("ctl", "you", dict(spec, name=n), ">=", 1) for n in names))
 
 
 @rule(rf"(?:an opponent|defending player|that player|target opponent) controls {_QUANT} (?P<f>.+?)")
 def _opp_control(m):
     op, n = _quant(m["q"])
-    f = _filter(m["f"], _plural(m["q"]))
+    f = _filter(m["f"], _plural(m["q"]), names=True)
     if f is None:
         return ""
     return _code("ctl", "opp", f, op, n)
@@ -372,7 +392,7 @@ def _on_battlefield(m):
 
 @rule(r"no opponent controls (?:a|an|any) (?P<f>.+?)")
 def _no_opp_control(m):
-    f = _filter(m["f"], plural=False)
+    f = _filter(m["f"], plural=False, names=True)
     return _code("ctl", "opp", f, "==", 0) if f is not None else ""
 
 

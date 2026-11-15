@@ -111,15 +111,16 @@ def parse_line(line: str, extra: dict, types) -> bool:
     m = re.fullmatch(r"Enchanted (?:creature|permanent) loses all abilities(?: and doesn't untap during its controller's "
                      r"untap step)?\.", line)
     if m:
-        flags = {"loses_abilities"} | ({"no_untap"} if "untap" in line else set())
-        extra["aura_flags"] = extra.get("aura_flags", frozenset()) | flags
-        extra.setdefault("_approx", []).append("loses all abilities: only keywords are removed")
+        from .cx_static_chars import record_lose_all
+        record_lose_all(extra)                  # layer 6, every ability (cx_static_chars, #406)
+        if "untap" in line:
+            extra["aura_flags"] = extra.get("aura_flags", frozenset()) | {"no_untap"}
         return True
     m = re.fullmatch(r"Enchanted creature gets ([+−-])(\d+)/([+−-])(\d+) and loses all abilities\.", line)
     if m:
         extra["equip_bonus"] = (_n(m[1], m[2]), _n(m[3], m[4]))
-        extra["aura_flags"] = extra.get("aura_flags", frozenset()) | {"loses_abilities"}
-        extra.setdefault("_approx", []).append("loses all abilities: only keywords are removed")
+        from .cx_static_chars import record_lose_all
+        record_lose_all(extra)
         return True
     m = re.fullmatch(rf"Enchanted creature (?:gets ([+−-])(\d+)/([+−-])(\d+))?(?:,? and |, | )?"
                      rf"(?:has ((?:{_KW})(?:(?:, | and |, and )(?:{_KW}))*))?(?:(?:,? and | )?(?:has )?ward \{{(\d+)\}})?\.", line)

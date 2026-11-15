@@ -672,7 +672,8 @@ class HeuristicAI:
         if not pact_affordable(me, card):
             return False            # a Pact we couldn't pay for next upkeep
         if hasattr(game, "can_cast_now"):
-            return game.can_cast_now(me, card)
+            from .life_costs import ai_spell_life_ok
+            return game.can_cast_now(me, card) and ai_spell_life_ok(game, me, card)
         return game.can_pay(me, card.mana_cost)
 
     @staticmethod
@@ -1298,7 +1299,7 @@ class HeuristicAI:
             with game.targeting(card if card is not None else game.target_source):
                 return engine.default_choose_target(game, me, eff)
         opp = game.opponent(me)
-        if eff.kind == "die_roll" and card is not None:
+        if eff.kind in ("die_roll", "become_copy") and card is not None:
             tgt = copies.group_model(game, me, eff, card)     # "choose target creature" a group copy reads
             if tgt is not None:
                 return tgt
@@ -1335,7 +1336,7 @@ class HeuristicAI:
         """Priority with something on the stack, or in an empty-stack window.
         Returns (card, targets) or None to pass."""
         from .cx_delayed import pact_affordable
-        options = [c for c in _spell_options(game, me) if c.instant_speed and game.can_cast_now(me, c)
+        options = [c for c in _spell_options(game, me) if c.instant_speed and self._can_cast(game, me, c)
                    and pact_affordable(me, c)
                    and (not getattr(c, "modes", None) or _counter_effects(c))]   # other modal: respond_extras
         real = {}

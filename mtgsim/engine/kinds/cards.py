@@ -164,7 +164,9 @@ def reorder_top(game, p, eff, **_):
 
 
 @kind("discard")
-def discard(game, p, eff, target, **_):
+def discard(game, p, eff, target, item=None, **_):
+    from ...referent import remember_card
+    remember_card(item, None)        # "that card": the one card discarded (#313)
     who = target if isinstance(target, Player) else p
     basics = [c for c in who.hand if is_basic_land(c)] if eff.data.get("unless") == "basic_land" else []
     if basics:
@@ -178,6 +180,8 @@ def discard(game, p, eff, target, **_):
         card = who.ai.choose_discard(game, who)
         game.discard_card(who, card)
         who.discarded_last.append(card)
+        if eff.amount == 1:
+            remember_card(item, card)
         game.log(f"discards {card.name}", who)
 
 
@@ -317,11 +321,15 @@ def tutor(game, p, eff, item, **_):
 def mill(game, p, eff, target, item, opp, **_):
     players = game.players if eff.target == "each_player" else [opp] if eff.target == "each_opponent" else \
         [target] if isinstance(target, Player) else [p]
+    from ...referent import remember_card
+    remember_card(item, None)
     for who in players:
         who.milled_last = []
         for _ in range(min(eff.amount, len(who.library))):
             who.milled_last.append(who.library.pop())
             who.graveyard.append(who.milled_last[-1])
+        if eff.amount == 1 and len(players) == 1 and who.milled_last:
+            remember_card(item, who.milled_last[0])      # "the milled card's mana value" (#313)
         if item is not None:
             if not hasattr(item, "milled"):
                 item.milled = {}
@@ -583,10 +591,13 @@ def clash(game, p, eff, item, opp, **_):
 
 
 @kind("flip_coin")
-def flip_coin(game, p, eff, item, **_):
+def flip_coin(game, p, eff, item, target=None, **_):
     """\"Flip a coin. If you win/lose the flip, <X>\" (chance_templates.py): a fair coin
     decides; the rider (cond \"paid\") runs on the named side of the flip."""
     from ...chance_templates import toss
+    from ..state import Player
+    if eff.target == "that_player" and isinstance(target, Player):
+        p = target          # "that player flips a coin. If they lose the flip, ..." (Planar Chaos)
     n = getattr(item, "x", 0) if eff.data.get("count_x") else eff.amount if eff.data.get("count") else 1
     wins = losses = 0
     while eff.data.get("until_lose") or wins + losses < n:
@@ -595,6 +606,7 @@ def flip_coin(game, p, eff, item, **_):
         losses += int(not won)
         if item is not None:
             item.gate_paid = won != bool(eff.data.get("on_lose"))
+            item.flip_result = won           # conds "flip_won" / "flip_lost" (chance_templates._fold_seq)
         game.log(f"flips a coin and {'wins' if won else 'loses'}", p)
         if won:
             game.fire(p, "you_win_flip")

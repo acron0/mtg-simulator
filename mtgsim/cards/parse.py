@@ -78,8 +78,10 @@ def _parse_effects(text: str, opts: bool = False):
             continue
         if _cx_tokens.parse_rider(s, effects):
             continue
+        from ..cx_exile_play import parse_rider as exile_play_rider        # "for as long as it remains exiled"
         from ..cx_replace_zones import parse_rider as leave_exile_rider      # "exile it instead of ... anywhere else"
-        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or leave_exile_rider(s, effects) or \
+        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or exile_play_rider(s, effects) or \
+                leave_exile_rider(s, effects) or \
                 delayed_rider(s, effects) or watch_rider(s, effects) or spell_rider(s, effects):
             continue
         if re.fullmatch(r"creatures destroyed this way can't be regenerated", s, re.I):
@@ -353,9 +355,11 @@ def _parse_effects(text: str, opts: bool = False):
             parts = None if re.search(r"\binstead\b", s, re.I) else _split_compound(s)
             from ..cx_suspect import parse_otherwise
             from .. import cx_grammar, cx_multi_target
+            from ..card_referent import parse_rider as card_ref     # "... equal to that card's mana value" (#313)
             if parts:
                 effects += parts
-            elif not parse_otherwise(s, effects) and not cx_grammar.parse_fallback(s, effects) \
+            elif not card_ref(s, effects) and not parse_otherwise(s, effects) and \
+                    not cx_grammar.parse_fallback(s, effects) \
                     and not cx_multi_target.lift(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312)
                 unmatched.append(sentence.strip())
         effects[first:] = _cx_tokens.reparse(s, effects[first:])
@@ -900,6 +904,9 @@ def _parse_trigger(line: str):
     if once_game:
         line = line[:-len(" This ability triggers only once.")]
     out = _parse_trigger_line(line)
+    if out is None and not (once or once_game):       # "When ~ enters and whenever ..., <body>" (#399)
+        from ..cx_trig_compound import split as _compound
+        out = _compound(line, _parse_trigger)
     if out is not None and once:
         for t in out[0]:
             t.once = True
@@ -973,6 +980,8 @@ def _parse_trigger_line(line: str):
             flt = "blocks_flying"
         if events == ("cast_instant_sorcery",) and "that targets a creature" in pat:
             flt = "targets_creature"
+        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"it deals \w+ damage to [^.]* and ", rest):
+            rest = "~" + rest[2:]       # "When ~ enters, it deals 4 damage to any target and 2 damage to you" (#320)
         if events in (("targeted_mine",), ("dealt_damage",)):
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("cast_cmc",):

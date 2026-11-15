@@ -989,6 +989,9 @@ def _face_cost_and_static_lines(st, line):
         if m:                                    # a state trigger: sacrificed while you control none
             extra["needs_land"] = {"lands": "Land", "Plains": "Plains"}.get(m[1], m[1][:-1])
             return None
+        from .. import cx_delayed as _cx_delayed
+        if _cx_delayed.flash_line(line, st):                  # flash Auras sacrificed at cleanup if cast as an instant
+            return None
         from .. import cx_trig_state as _cx_trig_state
         if _cx_trig_state.parse_line(line, extra):        # "When you control no other creatures, sacrifice ~."
             return None

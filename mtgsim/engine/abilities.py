@@ -320,7 +320,7 @@ class AbilitiesMixin:
             return False
         if p.counters.get("energy", 0) < c.get("energy", 0):
             return False
-        if c.get("life") and p.life <= c["life"]:
+        if c.get("life") and p.life < c["life"]:          # CR 119.4: paying your last life is legal
             return False
         if c.get("discard") and len(p.hand) < c["discard"]:
             return False
@@ -459,6 +459,7 @@ class AbilitiesMixin:
             if card not in p.hand:
                 return False
             self.discard_card(p, card)
+            perm.last_discarded = (int(card.power or 0), int(card.toughness or 0), card.cmc)  # ("discarded", stat)
             self.log(f"discards {card.name}", p)
         if c.get("remove_counter"):
             count = c.get('remove_counter_count', 1)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import re
 
-from .. import alt_casts, auras, copies, cx_events, cx_trig_events, milling
+from .. import alt_casts, auras, copies, cx_delayed, cx_events, cx_trig_events, milling
 from ..cards import CardDef, Effect
 from .. import modal, rules_events, phase_conditions, turn_conditions, counter_mechanics, cx_condlib
 from ..identity import CardInstance, CardZone
@@ -437,6 +437,7 @@ class StackMixin:
                 from ..cx_mech import room_entered
                 room_entered(perm)
             perm.cast_zone = getattr(item, "cast_zone", None)       # "if it was cast from exile" (cx_condlib)
+            cx_delayed.flash_resolved(self, perm, item)             # cast as an instant: sacrificed at cleanup
             if base.aura == "player":
                 perm.curse_target = self.opponent(p)
             self._entry_mana_colors = set()
@@ -645,6 +646,8 @@ class StackMixin:
                 item.source.counters.get("charge", 0) >= int(c[8:])
         if c == "paid":
             return bool(getattr(item, "gate_paid", False))
+        if c in ("flip_won", "flip_lost"):         # the last coin flip of this ability (never flipped: neither)
+            return getattr(item, "flip_result", None) is (c == "flip_won")
         if c == "unpaid":                          # the other side of a coin flip
             return not getattr(item, "gate_paid", False)
         if c == "harnessed":

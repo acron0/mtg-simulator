@@ -956,7 +956,8 @@ def _parse_trigger_line(line: str):
             flt = f"{'other' if m[1] == 'another' else 'any'}||{m[2]}"
         if events[0] in ("attacks", "blocks") and re.fullmatch(r"(?:sacrifice|destroy|return) it( to its owner's hand)? at end of combat\.?", rest):
             rest = rest.replace(" it", " ~", 1)      # "When ~ attacks or blocks, sacrifice it at end of combat"
-        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"(?:sacrifice|exile|destroy) it unless ", rest):
+        if events in (("etb",), ("attacks",), ("blocks",), ("attacks", "blocks")) and \
+                re.match(r"(?:sacrifice|exile|destroy) it unless ", rest):
             rest = rest.replace(" it", " ~", 1)      # "When ~ enters|attacks, sacrifice it unless you ..." (#330)
         if events == ("attacks",) and "while saddled" in pat:
             flt = "saddled"

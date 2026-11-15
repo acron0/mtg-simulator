@@ -131,7 +131,48 @@ def _sane(spec):
     return spec
 
 
+# "for each <phrase>" counts the general quantity readers don't have (#341): exact phrases only, evaluated by
+# _costq from the static's controller's point of view.
+_COSTQ = {
+    "1 life you gained this turn": ("life_gained",),
+    "spell your opponents have cast this turn": ("opp_spells",),
+    "creature you control with a +1/+1 counter on it": ("with_counter", "creature", "+1/+1"),
+    "permanent you control with oil counters on it": ("with_counter", "permanent", "oil"),
+    "artifact you control and each artifact card in your hand": ("artifacts_and_hand",),
+    "counter among players and permanents": ("all_counters",),
+    "creature card you own in exile and in your graveyard": ("creature_cards_exile_gy",),
+    "different mana value among instant and sorcery cards in your graveyard": ("distinct_mv_gy",),
+    "opponent who was dealt damage this turn": ("opps_damaged",),
+}
+
+
+def _costq(game, p, spec) -> int:
+    kind = spec[0]
+    if kind == "life_gained":
+        return p.life_gained_turn
+    if kind == "opp_spells":
+        counts = getattr(game, "spells_cast", {})
+        return sum(n for k, n in counts.items() if k != "turn" and k != p.name) if counts.get("turn") == game.turn else 0
+    if kind == "with_counter":
+        return sum(1 for x in p.battlefield if x.counters.get(spec[2], 0) > 0 and
+                   (spec[1] == "permanent" or x.is_creature))
+    if kind == "artifacts_and_hand":
+        return sum(x.card.is_artifact for x in p.battlefield) + sum(c.is_artifact for c in p.hand)
+    if kind == "all_counters":
+        return sum(max(0, n) for pl in game.players for x in pl.battlefield for n in x.counters.values()) + \
+            sum(max(0, n) for pl in game.players for n in getattr(pl, "counters", {}).values())
+    if kind == "creature_cards_exile_gy":
+        return sum(c.is_creature for c in list(p.exile) + list(p.graveyard) if getattr(c, "owner", p) in (p, None))
+    if kind == "distinct_mv_gy":
+        return len({c.cmc for c in p.graveyard if c.is_instant or c.is_sorcery})
+    if kind == "opps_damaged":
+        return sum(getattr(o, "last_damage_turn", None) == game.turn for o in game.players if o is not p)
+    return 0
+
+
 def _count(text: str):
+    if text in _COSTQ:
+        return ("costq",) + _COSTQ[text]
     from .cx_night_quantity import _quantity
     spec = _sane(_quantity("the number of " + text, plural=False))
     if spec is None:
@@ -309,6 +350,8 @@ def _times(game, p, rule, source, card) -> int:
             return 0
     if rule["per"] is None:
         return 1
+    if rule["per"][0] == "costq":
+        return max(0, _costq(game, source.controller if source is not None else p, rule["per"][1:]))
     return max(0, game.x_quantity(source.controller if source is not None else p, rule["per"], item, None))
 
 
@@ -481,19 +524,37 @@ def target_cost(game, p, card, effects, targets):
 
 def _temp_effect(m, once: bool):
     from .cards.model import Effect
-    group = _group(m["g"].strip() + (" spell you cast" if once else " spells you cast"))
+    from .cards.model import NO_MATCH     # refuse: the sentence stays unsupported (None would drop it)
+    words = m["g"].strip()
+    that = re.fullmatch(r"spells you cast this turn that are (\w+) and/or (\w+)", "spells you cast this turn " + words) \
+        if words.startswith("that are ") else None
+    group = _group(f"{that[1]} spells and {that[2]} spells you cast" if that else
+                   words + (" spell you cast" if once else " spells you cast"))
     amount = _amount(m["amt"])
-    if group is None or group[0] != "you" or group[2] is not None or group[3] is not None or "X" in amount:
-        return None
-    return Effect("cx_temp_cost", data={"specs": group[1], "amount": amount, "once": once,
-                                       "this_turn": bool(m["turn"]) or not once})
+    if group is None or group[0] != "you" or group[2] is not None or group[3] is not None:
+        return NO_MATCH
+    data = {"specs": group[1], "amount": amount, "once": once, "this_turn": bool(m["turn"]) or not once}
+    if "X" in amount:
+        where = m["x"] if "x" in m.re.groupindex else None
+        if amount != {"X": 1}:
+            return NO_MATCH
+        if where:           # ", where X is <Q> [as this ability resolves]": fixed on resolution
+            q = _sane(_quantity(re.sub(r" as this ability resolves$", "", where)))
+            if q is None:
+                return NO_MATCH
+            data["xq"] = q
+        else:
+            data["x_paid"] = True          # "The next Dragon creature spell you cast costs {X} less" (Draconic Debut)
+    return Effect("cx_temp_cost", data=data)
 
 
 EFFECT_PATTERNS = [
-    (r"the next (?P<g>[\w ,-]+?) spell you cast(?P<turn> this turn)? costs (?P<amt>(?:\{(?:\d+|[WUBRG])\})+) less "
-     r"to cast", lambda m: _temp_effect(m, True)),
-    (r"(?P<g>[\w ,-]+?) spells you cast(?P<turn> this turn) cost (?P<amt>(?:\{(?:\d+|[WUBRG])\})+) less to cast",
-     lambda m: _temp_effect(m, False)),
+    (r"the next (?P<g>[\w ,-]+?) spell you cast(?P<turn> this turn)? costs (?P<amt>(?:\{(?:\d+|[WUBRGX])\})+) less "
+     r"to cast(?:, where X is (?P<x>.+))?", lambda m: _temp_effect(m, True)),
+    (r"(?P<g>[\w ,-]+?) spells you cast(?P<turn> this turn) cost (?P<amt>(?:\{(?:\d+|[WUBRGX])\})+) less to cast"
+     r"(?:, where X is (?P<x>.+))?", lambda m: _temp_effect(m, False)),
+    (r"spells you cast(?P<turn> this turn) (?P<g>that are \w+ and/or \w+) cost (?P<amt>\{X\}) less to cast, where X is "
+     r"(?P<x>.+)", lambda m: _temp_effect(m, False)),
 ]
 SUBS: list = []
 

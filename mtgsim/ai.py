@@ -1262,6 +1262,8 @@ class HeuristicAI:
     def best_damage_target(self, game: Game, me: Player, eff: Effect, card: CardDef, precombat: bool):
         """(target, value) for a damage effect, or (None, 0) to hold the spell."""
         opp = game.opponent(me)
+        from .cx_abil_damage import scaled
+        eff = scaled(game, me, eff, card)       # a counted amount: what it deals now
         amount = engine.damage_amount(game, eff)
         face = None
         if eff.target in ("any", "player"):

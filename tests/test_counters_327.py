@@ -36,7 +36,7 @@ class Parse(unittest.TestCase):
     def test_refusals(self):
         for text in ("Put a +1/+1 counter on ~ for each frob you control.",
                      "Put a +1/+1 counter on ~ for each creature destroyed this way.",
-                     "Put a +1/+1 counter on it for each land that player controls.",
+                     "Put a +1/+1 counter on ~ for each creature card exiled this way.",
                      "Put a +1/+1 counter on each creature that entered the battlefield under your control this turn."):
             effects, bad = _parse_effects(text)
             self.assertEqual(bad, [text], text)

@@ -352,11 +352,11 @@ def _parse_effects(text: str, opts: bool = False):
             # Otherwise "instead A, then B" can leave B running beside the base.
             parts = None if re.search(r"\binstead\b", s, re.I) else _split_compound(s)
             from ..cx_suspect import parse_otherwise
-            from .. import cx_grammar, cx_multi_target
+            from .. import cx_grammar, cx_multi_target, excess_damage
             if parts:
                 effects += parts
             elif not parse_otherwise(s, effects) and not cx_grammar.parse_fallback(s, effects) \
-                    and not cx_multi_target.lift(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312)
+                    and not cx_multi_target.lift(s, effects) and not excess_damage.parse(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312); excess damage (#560)
                 unmatched.append(sentence.strip())
         effects[first:] = _cx_tokens.reparse(s, effects[first:])
         if paid:

@@ -319,6 +319,7 @@ class PlayMixin:
         if getattr(card, "spell_copy", False):
             item.kind = "copy"
             item.physical_card = None
+        item.sorcery_timing = self.active is p and self.step in ("main1", "main2") and not self.stack   # cx_delayed
         self.stack.append(item)
         if item.physical_card is not None and item.move_origin is not None:
             before, origin, actor, _, _ = item.move_origin

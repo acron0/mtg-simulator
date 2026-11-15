@@ -18,7 +18,8 @@ class Parsing(unittest.TestCase):
         self.assertEqual(target_spec("a white creature"), ("permanent", {"colors": ["W"], "types_all": ["creature"]}))
         self.assertEqual(target_spec("a blue spell"), ("spell", {"colors": ["U"]}))
         self.assertEqual(target_spec("a creature card with mana value 3 or less")[0], "card")
-        for s in ("a creature that was dealt damage this turn", "white creatures", "a Foo-ish thing that x"):
+        self.assertTrue(target_spec("a creature that was dealt damage this turn")[1]["damaged"])
+        for s in ("a creature that was dealt damage this turn or a land", "white creatures", "a Foo-ish thing that x"):
             self.assertIsNone(target_spec(s), s)
         c = card("Test", "{3}{B}", "Instant", "This spell costs {3} less to cast if it targets a white creature and "
                  "you control a Swamp.\\nTarget creature gets -4/-4 until end of turn.")
@@ -85,6 +86,18 @@ class Casting(unittest.TestCase):
         self.assertTrue(self.g.cast(self.a, whack, [bear]))
         self.assertNotIn(bear, self.b.battlefield)
         self.assertTrue(all(x.tapped for x in lands))               # paid {3}{B}
+
+    def test_bitter_downfall_needs_a_damaged_creature(self):
+        downfall = self.db.get("Bitter Downfall")
+        bear = self.put(BEAR, self.b)
+        for _ in range(downfall.cmc - 3):
+            self.put(SWAMP, self.a)
+        self.a.hand.append(downfall)
+        self.assertFalse(self.g.can_cast_now(self.a, downfall))
+        bear.damage = 1
+        self.assertTrue(self.g.can_cast_now(self.a, downfall))
+        self.assertTrue(self.g.cast(self.a, downfall, [bear]))
+        self.assertNotIn(bear, self.b.battlefield)
 
     def test_mystical_dispute_on_a_blue_spell(self):
         dispute = self.db.get("Mystical Dispute")

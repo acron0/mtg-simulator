@@ -251,11 +251,17 @@ def target_spec(text: str):
     if card and " card" in words:
         f = _filter(words, plural=False)
         return None if f is None else ("card", f)
+    damaged = words.endswith(" that was dealt damage this turn")      # the engine's "damaged" filter: marked damage
+    if damaged:
+        words = words[:-len(" that was dealt damage this turn")]
     from .cx_grammar import _noun
     noun = _noun(words, plural=False)
     if noun is None:
         return None
-    return ("permanent", noun.get("selector", noun))
+    spec = dict(noun.get("selector", noun))
+    if damaged:
+        spec["damaged"] = True
+    return ("permanent", spec)
 
 
 # ---------------------------------------------------------------------------
@@ -385,10 +391,10 @@ def fits(game, p, obj, spec) -> bool:
     from .cx_condlib import _card_ok
     kind, f = spec
     if kind == "permanent":
-        if not isinstance(obj, Permanent):
+        if not isinstance(obj, Permanent) or f.get("damaged") and not obj.damage > 0:
             return False
         from .permanent_templates import matches
-        return matches(game, obj, f, p, None)
+        return matches(game, obj, {k: v for k, v in f.items() if k != "damaged"}, p, None)
     if kind == "spell":
         return isinstance(obj, StackItem) and obj.card is not None and _card_ok(obj.card, f)
     return not isinstance(obj, (Permanent, StackItem)) and hasattr(obj, "types") and _card_ok(obj, f)

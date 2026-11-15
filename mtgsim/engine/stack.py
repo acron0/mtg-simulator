@@ -90,6 +90,7 @@ class StackMixin:
         self.rule_events.emit(rules_events.RulesEvent(event, p, source, context, subject, before,
                                                       amount=amount if amount is not None else 0))
         self._dispatch_trigger_event(p, event, source, context, subject, targeter)
+        self.event_targeter = targeter      # "becomes the target of a spell you control" (cx_trig_heads)
         cx_events.observe(self, p, event, source, context, subject)
         if event == "dies" and self.cx_watchers:
             from .. import cx_trig_watch

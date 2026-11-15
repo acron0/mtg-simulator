@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .. import continuous, counter_mechanics, cx_static_damage, cx_triggers, that_much
 
-from .. import auras
+from .. import auras, cx_trig_state
 from ..cards import AltCost, CardDef, Effect
 from .. import rules_events
 from .mana import find_payment
@@ -546,7 +546,8 @@ class EffectsMixin:
                         perm.attached_to = None
                         changed = True
                     if perm.card.needs_land and not any(perm.card.needs_land in x.card.subtypes or
-                                                        perm.card.needs_land in x.card.types for x in p.battlefield):
+                                                        perm.card.needs_land in x.card.types for x in p.battlefield) \
+                            or cx_trig_state.unmet(self, perm):
                         self.sacrifice(perm)
                         changed = True
                         continue

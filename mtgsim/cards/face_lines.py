@@ -989,6 +989,9 @@ def _face_cost_and_static_lines(st, line):
         if m:                                    # a state trigger: sacrificed while you control none
             extra["needs_land"] = {"lands": "Land", "Plains": "Plains"}.get(m[1], m[1][:-1])
             return None
+        from .. import cx_trig_state as _cx_trig_state
+        if _cx_trig_state.parse_line(line, extra):        # "When you control no other creatures, sacrifice ~."
+            return None
         line = re.sub(r"^Raid — (?=~ enters with)", "", line)
         m = re.fullmatch(r"~ enters with a \+1/\+1 counter on it if (an opponent lost life|a creature died|you attacked) "
                          r"this turn\.", line)

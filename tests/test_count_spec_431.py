@@ -104,6 +104,30 @@ class RealCards(unittest.TestCase):
         self.assertEqual(treasures, 2)
         self.assertEqual(dwarf.power, get("Dwarven Trader").power + 2)
 
+    def test_spec_tags_survive(self):
+        """The plural-word renaming touched a spec's tags too: ('cxq', 'cards') -> 'card', 'opponents' -> 'opponent'."""
+        self.assertEqual(_count_spec("card named ~ in your graveyard"), ("cxq", "cards", "your_gy", None))
+        self.assertEqual(_count_spec("soot counter on ~"), ("counters", "soot"))
+
+    def test_graveyard_and_library_statics_count(self):
+        """Full cards whose static count was ('cxq', 'card', ...) and so always 0 (#431)."""
+        a, b = Player("a", [], HeuristicAI()), Player("b", [], HeuristicAI())
+        g = Game(a, b, random.Random(0))
+        get = self.db.get
+        a.graveyard = [get(n) for n in ("Sol Ring", "Pacifism", "Shock", "Grizzly Bears")]
+        a.library = [get("Grizzly Bears")] * 3 + [get("Island")] * 5
+        bot = g.enter_battlefield(a, get("Runaway Trash-Bot"))          # 0/4, +1/+0 per artifact and/or enchantment
+        xande = g.enter_battlefield(a, get("Xande, Dark Mage"))         # 3/3, +1/+1 per noncreature, nonland card
+        wurm = g.enter_battlefield(a, get("Avoided Stairwurm"))         # 5/5, -1/-1 per creature card in library
+        g.settle()
+        self.assertEqual((bot.power, bot.toughness), (2, 4))
+        self.assertEqual((xande.power, xande.toughness), (6, 6))
+        self.assertEqual((wurm.power, wurm.toughness), (2, 2))
+
+    def test_blazing_sunsteel_counts_opponents(self):
+        rules = self.db.get("Blazing Sunsteel").advanced_rules["gated"]
+        self.assertEqual(rules[0][3][3], ("cxq", "opponents"))
+
     def test_heroes_podium_counts_other_legends(self):
         self.assertEqual(self.ignored("Heroes' Podium"), [])
         a, b = Player("a", [], HeuristicAI()), Player("b", [], HeuristicAI())

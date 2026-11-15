@@ -78,7 +78,8 @@ def _parse_effects(text: str, opts: bool = False):
             continue
         if _cx_tokens.parse_rider(s, effects):
             continue
-        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or \
+        from ..cx_replace_zones import parse_rider as leave_exile_rider      # "exile it instead of ... anywhere else"
+        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or leave_exile_rider(s, effects) or \
                 delayed_rider(s, effects) or watch_rider(s, effects) or spell_rider(s, effects):
             continue
         if re.fullmatch(r"creatures destroyed this way can't be regenerated", s, re.I):
@@ -853,7 +854,7 @@ def _parse_ability(line: str, approximations: list):
     if stripped is not None:
         body, restrictions, sorcery, once, once_game = stripped
     while True:
-        r = re.fullmatch(r"(.+?\.) (Activate only as a sorcery|Activate only once each turn|Activate no more than "
+        r = re.fullmatch(r"(.+?\.\"?) (Activate only as a sorcery|Activate only once each turn|Activate no more than "
                          r"(?:once|twice|two times|three times) each turn|Activate only if you have the city's blessing|"
                          r"This ability costs [^.]+ less to activate[^.]*|Do this only once each turn|"
                          r"Any player may activate this ability(?: but only (?:during their turn|during any upkeep "

@@ -67,5 +67,10 @@ class XReduction(unittest.TestCase):
         self.assertEqual(b.life, 18)            # 3 mana + {1} less = 4 toward {X}{X}: X=2
 
 
+    def test_ai_expects_the_larger_x(self):
+        g, a, b, lands = self.game(["Mountain"] * 3, ["Goblin Electromancer"])
+        sized = a.ai._sized(g, a, self.db.get("Blaze"))
+        self.assertEqual(sized.spell_effects[0].amount, 3)
+
 if __name__ == "__main__":
     unittest.main()

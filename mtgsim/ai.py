@@ -783,8 +783,9 @@ class HeuristicAI:
         x = 0
         cost = game.cost_of(me, card)
         per_x = card.mana_cost.get("X", 1) or 1          # {X}{X}: two mana per X (#531)
+        off = getattr(game, "x_reduction", 0)            # reduction the generic part couldn't use (#512)
         while x < 20 and engine.find_payment(game.mana_sources(me, spell=card), engine.add_costs(
-                cost, {"generic": (x + 1) * per_x})) is not None:
+                cost, {"generic": max(0, (x + 1) * per_x - off)})) is not None:
             x += 1
         if x < 1:
             return None

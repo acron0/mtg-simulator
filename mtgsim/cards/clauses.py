@@ -445,6 +445,8 @@ def _xq(text: str):
                  "the amount of life you gained this turn": ("gained",),
                  "the number of cards in your hand": ("hand",),
                  "the number of cards in an opponent's hand": ("opp_hand",)}[tl])
+    if tl in ("the amount of mana spent to cast that spell", "the number of colors of mana spent to cast that spell"):
+        return ("spell", "mana_spent" if tl.startswith("the amount") else "converge")   # its payment (Game.x_quantity)
     m = re.fullmatch(r"that spell's (mana value|power|toughness)|the number of (?:that spell's colors)|"
                      r"the amount of generic mana in that spell's mana cost", t, re.I)
     if m:      # the spell a cast trigger fired on, or the spell a counterspell targets (not the host)

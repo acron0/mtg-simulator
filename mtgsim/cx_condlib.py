@@ -40,6 +40,11 @@ def _n(word: str) -> int:
     return int(word) if word.isdigit() else _WORDS[word]
 
 
+def _tuple(x):
+    """A quantity spec back from its JSON list form (nested lists become tuples)."""
+    return tuple(_tuple(v) for v in x) if isinstance(x, list) else x
+
+
 def _code(*parts) -> str:
     return "lib:" + json.dumps(list(parts), separators=(",", ":"))
 
@@ -116,10 +121,15 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
     return True
 
 
-def _filter(text: str, plural: bool = True):
+def _filter(text: str, plural: bool = True, names: bool = False):
     """A permanent/card filter from "other untapped legendary creatures with flying", or None."""
-    text = text.strip().replace(",", "")
+    text = text.strip()
     spec: dict = {}
+    named = names and re.fullmatch(r"(.+?) named (~|[A-Z][\w'-]*(?:,? (?:[A-Z][\w'-]*|of|the|and|de|la|to|from|in))*)", text)
+    if named:       # "a creature named Bogbrew Witch", "four or more creatures named ~" (#314)
+        spec["name"] = named[2]
+        text = named[1]
+    text = text.replace(",", "")
     m = re.fullmatch(r"(\d+)/(\d+) (.+)", text)
     if m:                       # "a 1/1 creature" (#325): exact power and toughness
         spec["power"], spec["toughness"] = ["==", int(m[1])], ["==", int(m[2])]
@@ -188,6 +198,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
 
     if any(not has_type(t) for t in spec.get("types", ())):
         return False
+    if "name" in spec and card.name != spec["name"]:      # "~" is resolved by the caller (_count_perms)
+        return False
     if any(has_type(t) for t in spec.get("not", ())):
         return False
     if "any" in spec and not any(has_type(t) for t in spec["any"]):
@@ -246,6 +258,13 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
 
 
 def _count_perms(player, spec, source=None) -> int:
+    name = spec.get("name")
+    if name == "~":         # the source's own name
+        name = getattr(getattr(source, "card", source), "name", None)
+        if name is None:
+            return 0
+    if name is not None:
+        spec = dict(spec, name=name)
     return sum(1 for x in player.battlefield
                if not (spec.get("other") and x is source) and _card_ok(x.card, spec, x))
 
@@ -268,6 +287,7 @@ _ALIASES = {
     "~ was cast": "cast",
     "you cast it": "cast",
     "you cast ~": "cast",
+    "~ wasn't cast": "lib:[\"not_cast\"]",
     "a creature died under your control this turn": "lib:[\"died_mine\"]",
     "you're the monarch": "lib:[\"monarch\"]",
     "you are the monarch": "lib:[\"monarch\"]",
@@ -337,7 +357,7 @@ def rule(pattern: str):
 @rule(rf"you control {_QUANT} (?P<f>.+?)")
 def _you_control(m):
     op, n = _quant(m["q"])
-    f = _filter(m["f"], _plural(m["q"]))
+    f = _filter(m["f"], _plural(m["q"]), names=True)
     if f is None:
         return ""
     if m["q"].lower() == "another":
@@ -345,18 +365,24 @@ def _you_control(m):
     return _code("ctl", "you", f, op, n)
 
 
-@rule(r"you control (?:creatures|permanents|artifacts|lands) named (?P<a>[A-Z][\w' -]+?) and (?P<b>[A-Z][\w' -]+)")
-def _you_control_named(m):
-    """"If you control creatures named Mine Worker and Tower Worker": one permanent by each name."""
-    t = re.match(r"you control (\w+?)s? named", m[0]).group(1).lower()
-    t = "permanent" if t == "permanent" else t
-    return _code("and", *(_code("ctl", "you", {"types": [t], "name": n.strip()}, ">=", 1) for n in (m["a"], m["b"])))
+@rule(r"you control (?P<kind>creatures|artifacts|Equipment|permanents|lands) named (?P<names>.+?)")
+def _you_control_names(m):
+    """"you control creatures named Mine Worker and Power Plant Worker", "artifacts named Crown of Empires and
+    Throne of Empires": one of each (#314)."""
+    names = [n.strip() for n in re.split(r",? and |, ", m["names"]) if n.strip()]
+    kind = {"creatures": "creature", "artifacts": "artifact", "equipment": "Equipment", "permanents": "permanent",
+            "lands": "land"}[
+        m["kind"].lower()]
+    if len(names) < 2 or not all(re.fullmatch(r"~|[A-Z][\w'-]*(?: (?:[A-Z][\w'-]*|of|the))*", n) for n in names):
+        return ""
+    spec = {"sub": ["Equipment"]} if kind == "Equipment" else {"types": [kind]}
+    return _code("and", *(_code("ctl", "you", dict(spec, name=n), ">=", 1) for n in names))
 
 
 @rule(rf"(?:an opponent|defending player|that player|target opponent) controls {_QUANT} (?P<f>.+?)")
 def _opp_control(m):
     op, n = _quant(m["q"])
-    f = _filter(m["f"], _plural(m["q"]))
+    f = _filter(m["f"], _plural(m["q"]), names=True)
     if f is None:
         return ""
     return _code("ctl", "opp", f, op, n)
@@ -372,7 +398,7 @@ def _on_battlefield(m):
 
 @rule(r"no opponent controls (?:a|an|any) (?P<f>.+?)")
 def _no_opp_control(m):
-    f = _filter(m["f"], plural=False)
+    f = _filter(m["f"], plural=False, names=True)
     return _code("ctl", "opp", f, "==", 0) if f is not None else ""
 
 
@@ -550,6 +576,37 @@ def _no_mana_spent(m):
 @rule(rf"at least (?P<n>{_NUM}) (?P<c>white|blue|black|red|green|colorless) mana was spent to cast ~")
 def _color_mana_spent(m):
     return _code("mana_color", "WUBRGC"["white blue black red green colorless".split().index(m["c"].lower())], _n(m["n"]))
+
+
+@rule(rf"at least (?P<n>{_NUM}) mana of the same color was spent to cast (?:~|it|this spell)")
+def _same_color_spent(m):
+    """Adamant's colourless form (Henge Walker): some one colour paid at least N of the cost."""
+    return _code("mana_same", _n(m["n"]))
+
+
+@rule(rf"(?P<n>{_NUM}) or more colors of mana were spent to cast (?:~|it|this spell)")
+def _colors_spent(m):
+    return _code("mana_ncolors", _n(m["n"]))
+
+
+@rule(r"(?P<cs>(?:\{[WUBRG]\}){2,5}) was spent to cast (?:~|it|this spell)")
+def _spent_colors(m):
+    """"If {U}{B} was spent to cast ~" (the Mythos cycle): each of those colours paid the spell. A repeated
+    colour ("{G}{G}") is an amount of that colour, not read here."""
+    colours = re.findall(r"[WUBRG]", m["cs"])
+    if len(set(colours)) != len(colours):
+        return ""
+    return _code("and", *(_code("spent_color", c) for c in colours))
+
+
+@rule(r"its (?P<stat>mana value|power|toughness) is less than or equal to (?P<q>.+? spent to cast (?:~|it|this spell))")
+def _target_stat_le(m):
+    """"Exile target nonland permanent if its mana value is less than or equal to the number of colors of mana
+    spent to cast ~" (Prismatic Ending): the effect's own target (``prev`` as its condition is checked) against
+    a quantity of the spell."""
+    from .cards.clauses import _xq
+    spec = _xq(re.sub(r"cast (?:it|this spell)$", "cast ~", m["q"]))
+    return _code("tgt_stat_le", m["stat"].lower(), list(spec)) if spec else ""
 
 
 @rule(rf"(?P<q>a|one or more|{_NUM} or more) cards? left your graveyard this turn")
@@ -1169,6 +1226,19 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return stamp == game.turn and n >= args[0]
     if kind == "gy_left":
         return getattr(p.graveyard, "left_turn", 0) >= args[0]
+    if kind == "not_cast":      # "if it wasn't cast": the permanent itself (entry conditions have no item)
+        return source is not None and not getattr(source, "was_cast", False)
+    if kind == "tgt_stat_le":
+        from .engine.state import Permanent
+        if not isinstance(prev, Permanent):
+            return False
+        n = prev.card.cmc if args[0] == "mana value" else getattr(prev, args[0], 0)
+        return n <= game.x_quantity(p, _tuple(args[1]), item, prev)
+    if kind in ("mana_same", "mana_ncolors"):
+        src = item if getattr(item, "is_spell", False) else source
+        if kind == "mana_ncolors":
+            return len(set(getattr(src, "mana_colors", ())) & set("WUBRG")) >= args[0]
+        return max((n for c, n in getattr(src, "mana_by_color", {}).items() if c in "WUBRG"), default=0) >= args[0]
     if kind == "mana_color":
         src = item if getattr(item, "is_spell", False) else source
         return getattr(src, "mana_by_color", {}).get(args[0], 0) >= args[1]

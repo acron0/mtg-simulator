@@ -109,6 +109,8 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
     elif word[:1].isupper() and word.isalpha():
         sub = word if not plural or not word.endswith("s") or word.endswith("ss") else word[:-1]
         spec.setdefault("sub", []).append(sub)
+    elif re.fullmatch(r"[A-Z][a-z]+(?:'s|-[A-Z][a-z]+)", word):
+        spec.setdefault("sub", []).append(word)     # "Urza's", "Power-Plant": land subtypes written as they are
     else:
         return False
     return True
@@ -204,6 +206,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     if cc == "multicolored" and len(card.colors) < 2 or cc == "colorless" and card.colors or \
             cc == "monocolored" and len(card.colors) != 1:
         return False
+    if "name" in spec and card.name != spec["name"]:
+        return False
     if "legendary" in spec and bool(card.legendary) != spec["legendary"]:
         return False
     if "basic" in spec and _is_basic(card) != spec["basic"]:
@@ -211,6 +215,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     if spec.get("token") is False and card.is_token:
         return False
     if "mv" in spec and not _cmp(card.cmc, *spec["mv"]):
+        return False
+    if spec.get("toxic") and not getattr(card, "toxic", 0):
         return False
     if spec.get("snow") and not getattr(card, "snow", False):
         return False
@@ -226,6 +232,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
         if "kw" in spec and not perm.has(spec["kw"]):
             return False
         if "counter" in spec and not perm.counters.get(spec["counter"], 0):
+            return False
+        if "counters" in spec and not _cmp(perm.counters.get(spec["counters"][0], 0), *spec["counters"][1:]):
             return False
         if "toughness" in spec and not _cmp(perm.toughness, *spec["toughness"]):
             return False
@@ -335,6 +343,14 @@ def _you_control(m):
     if m["q"].lower() == "another":
         f = dict(f, other=True)
     return _code("ctl", "you", f, op, n)
+
+
+@rule(r"you control (?:creatures|permanents|artifacts|lands) named (?P<a>[A-Z][\w' -]+?) and (?P<b>[A-Z][\w' -]+)")
+def _you_control_named(m):
+    """"If you control creatures named Mine Worker and Tower Worker": one permanent by each name."""
+    t = re.match(r"you control (\w+?)s? named", m[0]).group(1).lower()
+    t = "permanent" if t == "permanent" else t
+    return _code("and", *(_code("ctl", "you", {"types": [t], "name": n.strip()}, ">=", 1) for n in (m["a"], m["b"])))
 
 
 @rule(rf"(?:an opponent|defending player|that player|target opponent) controls {_QUANT} (?P<f>.+?)")
@@ -592,6 +608,32 @@ def _src_damaged_player(m):
 @rule(r"(?:it's|it is|that creature is|that permanent is) (?P<c>white|blue|black|red|green)")
 def _prev_color(m):
     return _code("prev_is", {"colors": [_COLORS[m["c"].lower()]]})
+
+
+@rule(r"(?:it's|it is|that creature is|that permanent is) (?P<a>white|blue|black|red|green) or "
+      r"(?P<b>white|blue|black|red|green)")
+def _prev_color_or(m):
+    """"If that creature is white or blue, ...": the previous effect's object has either colour."""
+    return _code("prev_is", {"any_color": [_COLORS[m["a"].lower()], _COLORS[m["b"].lower()]]})
+
+
+@rule(r"(?:it|that creature|that permanent) has (?P<kw>[a-z ]+)")
+def _prev_keyword(m):
+    """"If that creature has flying, ...": a keyword of the previous effect's object (toxic is a number on the card)."""
+    from .cx_grammar import keyword_list
+    if m["kw"].lower() == "toxic":
+        return _code("prev_is", {"toxic": True})
+    kws = keyword_list(m["kw"])
+    return _code("prev_is", {"kw": kws[0]}) if kws and len(kws) == 1 and " or " not in m["kw"] and \
+        " and " not in m["kw"] else ""
+
+
+@rule(rf"(?:that creature|that permanent) has (?P<q>a|an|one|{_NUM} or more) (?P<c>\+1/\+1|-1/-1|[a-z]+) counters? on it")
+def _prev_counters(m):
+    """"If that creature has a +1/+1 counter on it" / "two or more +1/+1 counters on it": the previous effect's
+    object (a target), not the source."""
+    op, n = (">=", 1) if m["q"].lower() in ("a", "an", "one") else _quant(m["q"])
+    return _code("prev_is", {"counters": [m["c"].lower(), op, n]})
 
 
 @rule(rf"(?:~|it)(?:'s| is| has)? (?:power|toughness) (?:is )?(?P<n>{_NUM}) or (?P<d>greater|more|less)")
@@ -985,6 +1027,10 @@ def check(game, p, code: str, item=None, source=None, prev=None):
     if kind == "prev_is":
         from .engine.state import Permanent
         obj = prev if isinstance(prev, Permanent) else getattr(item, "context", None)
+        if prev is None and obj is None and item is not None:
+            from .cx_delayed import _fresh       # "put an artifact card onto the battlefield. If it's an Equipment, ..."
+            fresh = _fresh(game, item)
+            obj = fresh[-1] if fresh else None
         spec = args[0]
         if prev is None and not isinstance(obj, Permanent):
             prev = getattr(item, "exiled_card", None)

@@ -12,6 +12,8 @@ is one or more parts joined by "and" ("discard a card and sacrifice a creature")
     tap four untapped creatures you control / two untapped artifacts, creatures, and/or lands you control
     put a -1/-1 counter on a creature you control
     reveal a Pirate card from your hand
+    behold an Elf and exile it (an Elf you control or an Elf card in hand; it returns to its owner's hand when
+        the permanent the spell became leaves: "When ~ leaves the battlefield, return the exiled card ...")
 
 The parse is stored as ``advanced_rules["spell_add_cost"]``: a tuple of alternatives, each a tuple of
 ``(kind, n, spec)`` parts (``spec`` is a cx_condlib filter, or the mana dict for kind "mana"). Anything
@@ -56,6 +58,9 @@ def _part(text: str):
         return None if spec is None else ("sac_all", 0, spec)
     if text == "discard your hand":
         return ("discard_hand", 0, {})
+    m = re.fullmatch(r"behold an? ([A-Z][\w'-]+) and exile it", text)
+    if m:     # choose a <Sub> you control or a <Sub> card in your hand, and exile it
+        return ("behold_exile", 1, {"sub": [m[1]]})
     m = re.fullmatch(r"pay (\d+) life", text)
     if m:
         return ("life", int(m[1]), {})
@@ -95,7 +100,7 @@ def parse_cost(text: str):
     """The alternatives of "<cost>" (no trailing period), or None when a part isn't modelled."""
     alts = []
     for alt in re.split(rf",? or (?={_VERB})|, (?={_VERB})", text):
-        parts = tuple(_part(p) for p in re.split(rf",? and (?={_VERB})", alt))
+        parts = tuple(_part(p) for p in re.split(rf",? and (?={_VERB})(?!exile it$)", alt))
         if not parts or None in parts or sum(k == "mana" for k, _, _ in parts) > 1:
             return None
         alts.append(parts)
@@ -145,7 +150,16 @@ def _candidates(game, p, card, kind, spec):
                 (not spec or _card_ok(c, spec))]
     if kind == "exile_gy":
         return [c for c in p.graveyard if not spec or _card_ok(c, spec)]
+    if kind == "behold_exile":       # cards in hand first (the cheapest), then permanents
+        own = p.hand.get(base) if base in p.hand else None
+        hand = sorted((c for c in p.hand if c is not own and c is not card and c is not base and _beholds(c, spec)),
+                      key=lambda c: c.cmc)
+        return hand + _cheap([x for x in p.battlefield if _beholds(x.card, spec)])
     return []
+
+
+def _beholds(card, spec) -> bool:
+    return spec["sub"][0] in card.subtypes or bool(getattr(card, "changeling", False))
 
 
 def _mana_sources(game, p, card):
@@ -174,7 +188,7 @@ def _pick(game, p, card, alt, avoid=()):
             continue
         if len(pool) < n:
             return None
-        pool = _cheap(pool)
+        pool = pool if kind == "behold_exile" else _cheap(pool)
         if kind == "tap":       # keep mana sources for the mana: tap the others first
             sources = _mana_sources(game, p, card) if sources is None else sources
             pool.sort(key=lambda x: id(x) in sources)
@@ -263,7 +277,24 @@ def pay(game, p, card, chosen) -> tuple | None:
     (power, toughness, mana value) for "the sacrificed creature" riders, or None. False on failure."""
     from .engine.state import Permanent
     sac_stats = None
+    game._add_cost_exiled = []      # (card, owner) exiled until the permanent this spell becomes leaves
     for kind, n, spec, picks in chosen[1]:
+        if kind == "behold_exile":
+            x = picks[0]
+            if isinstance(x, Permanent):
+                if x not in p.battlefield:
+                    return False
+                owner, front = x.owner, x.front
+                game.log(f"beholds and exiles {x.card.name} for {card.name}", p)
+                game.leave_battlefield(x, "exile")
+                if not front.is_token:
+                    game._add_cost_exiled.append((front, owner))
+            else:
+                if x not in p.hand:
+                    return False
+                game.log(f"beholds and exiles {x.name} from hand for {card.name}", p)
+                game._add_cost_exiled.append((game.move_card(x, p.hand, p.exile, reason="cost"), p))
+            continue
         if kind in ("sac", "sac_all", "exile_bf", "bounce", "tap", "m1_counter") and \
                 any(not isinstance(x, Permanent) or x not in p.battlefield for x in picks):
             return False
@@ -332,6 +363,8 @@ def _value(p, picked) -> float:
     for kind, n, _, picks in picked:
         if kind in ("sac", "sac_all", "exile_bf"):
             value += sum(perm_value(x) if x.is_creature else 0.5 * x.card.cmc + 0.5 for x in picks)
+        elif kind == "behold_exile":       # it comes back when the permanent leaves: a loan, not a loss
+            value += sum(0.5 * perm_value(x) if hasattr(x, "card") else 0.5 for x in picks)
         elif kind == "bounce":
             value += sum(0.3 * x.card.cmc for x in picks)
         elif kind == "m1_counter":

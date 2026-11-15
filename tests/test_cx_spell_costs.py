@@ -31,7 +31,7 @@ class Parse(unittest.TestCase):
     def test_refusals(self):
         for text in ("sacrifice X creatures", "discard X cards", "pay X life", "sacrifice any number of creatures",
                      "sacrifice a creature that dealt damage this turn", "sacrifice half the lands you control, rounded up",
-                     "behold a Goblin and exile it", "blight 2 or pay {1}", "forage or pay {B}",
+                     "behold a Goblin", "behold a Goblin and sacrifice it", "blight 2 or pay {1}", "forage or pay {B}",
                      "sacrifice a creature or pay {X}", "discard a widget"):
             self.assertIsNone(parse_cost(text), text)
 
@@ -254,6 +254,97 @@ class Casting(unittest.TestCase):
         c = self.db.get("Bone Shards")
         c.spell_copy = True
         self.assertEqual(alternatives(c), ())
+
+
+ELF = card("Test Elf", "{G}", "Creature — Elf", "", 1, 1)
+ELF_LORD = card("Test Elf Lord", "{2}{G}", "Creature — Elf", "", 3, 3)
+
+
+@unittest.skipUnless(os.path.exists(ALL_CARDS), "card database not built")
+class Behold(unittest.TestCase):
+    """'behold an Elf and exile it' (Champions of the Perfect): the exiled card returns to its owner's hand when
+    the champion leaves the battlefield."""
+    def setUp(self):
+        self.db = CardDB(offline=True)
+        self.a, self.b = Player("a", [], Scripted()), Player("b", [], Scripted())
+        self.g = Game(self.a, self.b, random.Random(0), log=True)
+        self.g.turn, self.g.step = 2, "main1"
+        for p in self.g.players:
+            p.library = [ISLAND] * 20
+            p.ai.respond = p.ai.respond_extras = lambda *args: None
+        for _ in range(4):
+            self.g.enter_battlefield(self.a, FOREST).sick = False
+        self.champion = self.db.get("Champions of the Perfect")
+        self.assertEqual(self.champion.unsupported, [])
+
+    def champ(self):
+        return next(x for x in self.a.battlefield if x.card.name == "Champions of the Perfect")
+
+    def test_needs_an_elf_other_than_itself(self):
+        self.a.hand = [self.champion, ISLAND]          # Champions of the Perfect is an Elf: it can't behold itself
+        self.assertFalse(self.g.can_cast_now(self.a, self.champion))
+
+    def test_from_hand_returns_when_it_leaves(self):
+        self.a.hand = [self.champion, ELF]
+        self.assertTrue(self.g.cast(self.a, self.champion, []))
+        self.g.settle()
+        self.assertEqual([c.name for c in self.a.exile], ["Test Elf"])
+        self.assertEqual(self.a.hand, [])
+        self.g.destroy(self.champ())
+        self.g.settle()
+        self.assertEqual([c.name for c in self.a.hand], ["Test Elf"])
+        self.assertEqual(list(self.a.exile), [])
+
+    def test_from_battlefield_returns_to_hand(self):
+        elf = self.g.enter_battlefield(self.a, ELF)
+        self.a.hand = [self.champion]
+        self.assertTrue(self.g.cast(self.a, self.champion, []))
+        self.g.settle()
+        self.assertNotIn(elf, self.a.battlefield)
+        self.assertEqual([c.name for c in self.a.exile], ["Test Elf"])
+        self.g.leave_battlefield(self.champ(), "hand")
+        self.g.settle()
+        self.assertEqual(sorted(c.name for c in self.a.hand), ["Champions of the Perfect", "Test Elf"])
+
+    def test_countered_spell_leaves_the_card_in_exile(self):
+        self.a.hand = [self.champion, ELF]
+        counter = card("Test Negate", "{U}", "Instant", "Counter target spell.")
+        self.g.enter_battlefield(self.b, ISLAND).sick = False
+        self.b.hand = [counter]
+        self.g._priority_depth = 1
+        self.assertTrue(self.g.cast(self.a, self.champion, []))
+        self.assertTrue(self.g.cast(self.b, counter, [self.g.stack[-1]]))
+        self.g._priority_depth = 0
+        self.g.settle()
+        self.assertEqual([c.name for c in self.a.exile], ["Test Elf"])
+        self.assertIn("Champions of the Perfect", [c.name for c in self.a.graveyard])
+
+    def test_champions_of_the_shoal_stuns_the_target_not_itself(self):
+        """'Whenever ~ enters or becomes tapped, tap up to one target creature and put a stun counter on it':
+        "it" is the target (the becomes-tapped head used to read it as ~)."""
+        shoal = self.db.get("Champions of the Shoal")
+        merfolk = card("Test Merfolk", "{U}", "Creature — Merfolk", "", 1, 1)
+        for _ in range(4):
+            self.g.enter_battlefield(self.a, ISLAND).sick = False
+        enemy = self.g.enter_battlefield(self.b, BIG)
+        self.a.hand = [shoal, merfolk]
+        self.assertTrue(self.g.cast(self.a, shoal, []))
+        self.g.settle()
+        champ = next(x for x in self.a.battlefield if x.card.name == "Champions of the Shoal")
+        self.assertTrue(enemy.tapped)
+        self.assertEqual(enemy.counters.get("stun"), 1)
+        self.assertFalse(champ.counters.get("stun"))
+
+    def test_ai_beholds_the_cheap_card(self):
+        from mtgsim.ai import HeuristicAI
+        self.a.ai = HeuristicAI()
+        lord = self.g.enter_battlefield(self.a, ELF_LORD)
+        self.a.hand = [self.champion, ELF]
+        self.a.ai.main_phase(self.g, self.a)
+        self.g.settle()
+        self.assertIn(lord, self.a.battlefield)
+        self.assertEqual([c.name for c in self.a.exile], ["Test Elf"])
+        self.assertTrue(any(x.card.name == "Champions of the Perfect" for x in self.a.battlefield))
 
 
 @unittest.skipUnless(os.path.exists(ALL_CARDS), "card database not built")

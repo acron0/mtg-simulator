@@ -32,7 +32,11 @@ def count(perm, spec: str) -> int:
     game = getattr(perm.controller, "_game", None)
     me = perm.controller
     players = game.players if game is not None else [me]
+    named = what.startswith("differently named ")      # "the number of differently named lands you control"
+    what = what[len("differently named "):] if named else what
     if scope in ("my_gy", "all_gy"):
-        return sum(fits(c, what) for pl in players if scope == "all_gy" or pl is me for c in pl.graveyard)
-    return sum(1 for pl in players if scope == "all" or (pl is me) == (scope == "mine")
-               for x in pl.battlefield if not (other and x is perm) and fits(x.card, what, x))
+        cards = [c for pl in players if scope == "all_gy" or pl is me for c in pl.graveyard if fits(c, what)]
+    else:
+        cards = [x.card for pl in players if scope == "all" or (pl is me) == (scope == "mine")
+                 for x in pl.battlefield if not (other and x is perm) and fits(x.card, what, x)]
+    return len({c.name for c in cards}) if named else len(cards)

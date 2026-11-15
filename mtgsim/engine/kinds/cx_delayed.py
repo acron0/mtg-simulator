@@ -20,3 +20,9 @@ def cx_delayed_do(game, p, eff, item, **_):
 def cx_fresh_grant(game, p, eff, prev, item, **_):
     from ...cx_delayed import fresh_grant
     fresh_grant(game, p, eff, prev, item)
+
+
+@kind("cx_pact")
+def cx_pact(game, p, eff, item, **_):
+    from ...cx_delayed import pact
+    pact(game, p, eff, item)

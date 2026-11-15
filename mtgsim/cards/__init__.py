@@ -243,6 +243,7 @@ from .. import cx_trigger_grants as _cx_trigger_grants
 _SUBS += _cx_trigger_grants.SUBS
 from .. import search_counted as _search_counted
 _EFFECT_PATTERNS += _search_counted.EFFECT_PATTERNS
+_SUBS += _search_counted.SUBS
 from .. import time_counters as _time_counters
 _EFFECT_PATTERNS += _time_counters.EFFECT_PATTERNS
 _SUBS += _time_counters.SUBS
@@ -253,3 +254,5 @@ from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
 from .. import cx_static_cost as _cx_static_cost  # one-shot spell-group discounts (#341)
 _EFFECT_PATTERNS += _cx_static_cost.EFFECT_PATTERNS
+from .. import linked_exile as _linked_exile  # noqa: E402
+_EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS

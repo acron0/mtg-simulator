@@ -95,7 +95,7 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     k = eff.kind
     if k == "copy_spell":
         return max(legal, key=lambda i: i.card.cmc, default=None)
-    if k == "die_roll" and copies.group_model(game, me, eff, None) is not None:     # a group copy's model
+    if k in ("die_roll", "become_copy") and copies.group_model(game, me, eff, None) is not None:   # copy choices
         return copies.group_model(game, me, eff, None)
     if k == "damage" and eff.data.get("spell_controller"):
         return max((i for i in legal if i.controller is opp), key=lambda i: i.card.cmc, default=None)

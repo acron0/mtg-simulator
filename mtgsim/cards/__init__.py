@@ -251,3 +251,5 @@ _EFFECT_PATTERNS += _capped_counters.EFFECT_PATTERNS
 _SUBS += _capped_counters.SUBS
 from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
+from .. import cx_replace_amounts as _cx_replace_amounts       # counter-amount replacements (#407)
+_parse_module._FACE_LINE_PARSERS = (_cx_replace_amounts.face_line,) + _parse_module._FACE_LINE_PARSERS

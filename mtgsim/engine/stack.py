@@ -269,7 +269,7 @@ class StackMixin:
         if source is not None:      # Role tokens, Auras and Equipment give their creature triggers
             # "its controller" in "Whenever enchanted creature ..., its controller ..." is the creature's (#361)
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
-                                                for e in effects) else context
+                                                or e.data.get("ref_subject") for e in effects) else context
             for equipment in source.equipment:
                 for trig in equipment.card.host_triggers:
                     if trig.event == event:

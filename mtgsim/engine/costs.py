@@ -151,7 +151,8 @@ class CostsMixin:
         cost = self.cost_of(p, card, assist=False)
         convoked = self.convoke_pool(p)[:self._convoke_k] if card.convoke else []
         cost, improvised, _ = self.assist_payment(p, card, cost) if card.improvise or card.delve else (cost, [], [])
-        return costs.spell_plan(self, p, card, cost, exclude=convoked + improvised) is not None
+        from ..cx_spell_costs import reserved as add_cost_reserved      # tapped for an additional cost (#342)
+        return costs.spell_plan(self, p, card, cost, exclude=convoked + improvised + add_cost_reserved(self, p, card)) is not None
 
     @staticmethod
     def _needed_color(p, source, payment, cost) -> bool:
@@ -594,7 +595,8 @@ class CostsMixin:
         if card.extra_sac_or_pay and not self.extra_sac_candidates(p, card):
             more += card.extra_sac_or_pay
         # 601.2f: the total cost is the mana cost plus every increase, then every reduction
-        cost = cx_static_cost.adjust(self, p, card, cost, increase=more, reduction=n)
+        from ..cx_spell_costs import add_mana as add_cost_mana      # "... or pay {3}{B}" additional costs (#342)
+        cost = cx_static_cost.adjust(self, p, card, add_cost_mana(self, p, card, cost), increase=more, reduction=n)
         if card.convoke:
             self._convoke_k = min(len(self.convoke_pool(p)), cost.get("generic", 0))
             cost["generic"] -= self._convoke_k
@@ -872,6 +874,9 @@ class CostsMixin:
         if getattr(card, "extra_exile_gy", "") and len(self.gy_exile_candidates(p, card.extra_exile_gy)) < \
                 getattr(card, "extra_exile_gy_count", 1):
             return False       # "As an additional cost to cast ~, exile a(n) <desc> from your graveyard"
+        from ..cx_spell_costs import payable as add_cost_payable
+        if not add_cost_payable(self, p, card):        # "As an additional cost to cast ~, ..." (#342)
+            return False
         if card.aura and not auras.hosts(self, p, card):
             return False
         if not during_resolution and not card.instant_speed and not (p is self.active and self.step in ("main1", "main2")

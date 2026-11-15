@@ -69,5 +69,11 @@ class DoubleX(unittest.TestCase):
         self.assertEqual(sum(not x.tapped for x in lands), 1)
 
 
+    def test_ai_sizes_double_x(self):
+        g, a, b, lands = self.game("Swamp", 5)
+        drain = card("Test Drain", "{X}{X}{B}", "Sorcery", "Target player loses X life.")
+        sized = a.ai._sized(g, a, drain)
+        self.assertEqual(sized.spell_effects[0].amount, 2)            # the AI expects X=2, not 4
+
 if __name__ == "__main__":
     unittest.main()

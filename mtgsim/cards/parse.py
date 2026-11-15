@@ -78,8 +78,10 @@ def _parse_effects(text: str, opts: bool = False):
             continue
         if _cx_tokens.parse_rider(s, effects):
             continue
+        from ..cx_exile_play import parse_rider as exile_play_rider        # "for as long as it remains exiled"
         from ..cx_replace_zones import parse_rider as leave_exile_rider      # "exile it instead of ... anywhere else"
-        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or leave_exile_rider(s, effects) or \
+        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or exile_play_rider(s, effects) or \
+                leave_exile_rider(s, effects) or \
                 delayed_rider(s, effects) or watch_rider(s, effects) or spell_rider(s, effects):
             continue
         if re.fullmatch(r"creatures destroyed this way can't be regenerated", s, re.I):

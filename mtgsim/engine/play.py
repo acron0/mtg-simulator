@@ -27,6 +27,7 @@ SPELL_KINDS = {   # "Whenever you cast a multicolored / historic / blue ... spel
 class PlayMixin:
     def play_land(self, p: Player, card: CardDef, back: bool = False):
         """Play a land from hand; with back=True, a modal double-faced card's land face."""
+        from ..cx_exile_play import foreign_zone
         for zone in (p.hand, p.exile, p.graveyard, p.library):
             if card in zone:
                 card = zone.get(card)
@@ -37,6 +38,8 @@ class PlayMixin:
             p.hand.remove(card)
         elif card in p.exile and card in self.impulse_cards(p):
             p.exile.remove(card)
+        elif foreign_zone(p, card) is not None:     # a land p may play from another player's exile (#316)
+            foreign_zone(p, card).remove(card)
         elif card in p.library:     # "You may play lands from the top of your library." (cx_top)
             from .. import cx_top
             assert cx_top.land_ok(p, card)

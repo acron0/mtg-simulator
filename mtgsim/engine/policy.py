@@ -444,7 +444,9 @@ def respond(game: Game, me: Player):
     protect = regeneration.respond(game, me)
     if protect is not None:
         return protect
-    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)}
+    from ..cx_delayed import pact_affordable
+    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)}
     top = game.stack[-1] if game.stack else None
     if top is not None:
         if top.controller is me:
@@ -571,7 +573,9 @@ def respond_extras(game: Game, me: Player):
         if game.step == "declare_blockers":
             return combat_pump(game, me)
         return None
-    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)]
+    from ..cx_delayed import pact_affordable
+    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)]
     if game.step == "declare_attackers" and game.attackers:
         flash_pw = [c for c in options if c.is_planeswalker]
         if flash_pw:

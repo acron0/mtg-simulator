@@ -668,6 +668,9 @@ class HeuristicAI:
                 opp.battlefield.insert(i, perm)
 
     def _can_cast(self, game: Game, me: Player, card: CardDef) -> bool:
+        from .cx_delayed import pact_affordable
+        if not pact_affordable(me, card):
+            return False            # a Pact we couldn't pay for next upkeep
         if hasattr(game, "can_cast_now"):
             return game.can_cast_now(me, card)
         return game.can_pay(me, card.mana_cost)
@@ -1331,7 +1334,9 @@ class HeuristicAI:
     def respond(self, game: Game, me: Player):
         """Priority with something on the stack, or in an empty-stack window.
         Returns (card, targets) or None to pass."""
+        from .cx_delayed import pact_affordable
         options = [c for c in _spell_options(game, me) if c.instant_speed and game.can_cast_now(me, c)
+                   and pact_affordable(me, c)
                    and (not getattr(c, "modes", None) or _counter_effects(c))]   # other modal: respond_extras
         real = {}
         for c in list(options):     # an instant with X (Traumatic Critique) is judged at the largest X

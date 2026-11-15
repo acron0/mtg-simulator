@@ -91,6 +91,9 @@ def _parse_effects(text: str, opts: bool = False):
                                      "destroy_all", "destroy_group"):
             effects[-1] = dataclasses.replace(effects[-1], data=dict(effects[-1].data, no_regen=True))
             continue
+        from ..cx_exchange import still_resolves_rider
+        if still_resolves_rider(s, effects):    # Gilded Drake: its exchange still resolves without a legal target
+            continue
         if re.fullmatch(r"if that spell is countered this way, exile it instead of putting it into its owner's graveyard", s,
                         re.I) and effects and effects[-1].kind == "counter":
             effects[-1] = dataclasses.replace(effects[-1], data=dict(effects[-1].data, exile=True))

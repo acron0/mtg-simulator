@@ -483,6 +483,7 @@ class StackMixin:
         targeted = [(e, t) for e, t in zip(item.effects, item.targets)        # a list with nobody chosen: no target
                     if e.target in TARGETED and not (t is None and e.data.get("optional_target"))
                     and not e.data.get("chosen")          # a choice on resolution, not a target (#360)
+                    and not e.data.get("resolves_anyway")  # "This ability still resolves if its target becomes illegal"
                     and not (e.target == "multi" and not t)]
         with self.targeting(item):
             item.resolved = not (targeted and all(not (self.legal_target(p, e, t) if e.target != "multi" else

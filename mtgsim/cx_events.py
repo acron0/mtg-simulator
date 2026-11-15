@@ -324,7 +324,10 @@ _SPELL_ADJ = _ADJ | {"kicked", "nonpermanent", "spell"}
 def _spell_spec(text: str):
     """'a creature spell with mana value 4 or greater', 'your first spell each turn', 'an instant or sorcery
     spell from your graveyard' -> spec, or None."""
-    spec = {"alts": None, "nth": 0, "zone": "", "mv": None, "turn": "", "targets": ""}
+    spec = {"alts": None, "nth": 0, "zone": "", "mv": None, "turn": "", "targets": "", "q": []}
+    text = cx_trig_cast.head(text, spec)
+    if text is None:
+        return None
     m = re.fullmatch(r"(?:your|their) (first|second|third) (.*?)spells? (?:each turn|during each opponent's turn)", text)
     if m:
         if text.endswith("during each opponent's turn"):
@@ -356,11 +359,20 @@ def _spell_spec(text: str):
                 text = text[:mm.start()]
                 break
         else:
-            break
+            got = cx_trig_cast.tail(text)
+            if got is None:
+                break
+            spec["q"].append(got[0])
+            text = got[1]
     m = re.fullmatch(r"(?:an?|one or more) (.*?)spells?", text)
     if not m:
         return None
     desc = (m[1] or "").strip().rstrip(",")
+    if spec.get("alts_override"):
+        if desc:
+            return None
+        spec["alts"] = spec.pop("alts_override")
+        return spec
     if not desc:
         spec["alts"] = [("spell",)]
         return spec
@@ -368,10 +380,14 @@ def _spell_spec(text: str):
     return spec if spec["alts"] is not None else None
 
 
-def _spell_ok(game, spec, item, caster, me, copied=False) -> bool:
+def _spell_ok(game, spec, item, caster, me, copied=False, perm=None) -> bool:
     if item is None or item.card is None:
         return False
     if not any(all(_spell_word(item, w) for w in ws) for ws in spec["alts"]):
+        return False
+    if spec.get("other") and perm is not None and item.card is perm.card:
+        return False
+    if spec.get("q") and not cx_trig_cast.ok(game, spec["q"], item, caster, me, perm):
         return False
     if spec["mv"]:
         n, way = spec["mv"]
@@ -402,8 +418,13 @@ def _spell_ok(game, spec, item, caster, me, copied=False) -> bool:
         if spec["targets"] == "my_creature" and not any(isinstance(t, Permanent) and t.is_creature
                                                          and t.controller is caster for t in tg):
             return False
-    if spec["nth"] and (copied or game.spells_cast_turn(caster) != spec["nth"]):
-        return False
+    if spec["nth"] or spec.get("nth_not"):
+        if copied:
+            return False
+        n = game.spells_cast_turn(caster) if spec["alts"] == [("spell",)] else \
+            cx_trig_cast.nth_of_kind(game, caster, spec["alts"], _spell_word)
+        if spec["nth"] and n != spec["nth"] or spec.get("nth_not") and n == spec["nth_not"]:
+            return False
     return True
 
 
@@ -453,7 +474,8 @@ _OBJ_VERBS = [
 _VERB_RE = "|".join(f"(?:{v[0]})" for v in _OBJ_VERBS)
 
 _PLAYER_SUBJ = {"you": "you", "a player": "any", "an opponent": "opp", "each opponent": "opp",
-                "one or more opponents": "opp", "one of your opponents": "opp"}
+                "one or more opponents": "opp", "one of your opponents": "opp", "another player": "opp",
+                "enchanted player": "enchanted"}
 _DISCARD = r"discards? (a card|one or more cards|an? (?:creature|land|noncreature|nonland|artifact|instant or sorcery|" \
            r"instant|sorcery|enchantment|noncreature, nonland) card|another card)"
 _PLAYER_VERBS = [
@@ -483,7 +505,7 @@ _PLAYER_RAW = {"cast": ("any_cast",), "cast_copy": ("any_cast", "spell_copied"),
 def compile_head(head: str):
     """The head ("Whenever a Goblin you control attacks") -> (raw events, matcher spec), or None."""
     m = re.fullmatch(r"When(?:ever)? (.+)", head)
-    if not m or re.search(r"\b(?:this turn|this combat|while|commander|chosen|named|each combat)\b",
+    if not m or re.search(r"\b(?:this turn|this combat|while|commander|named|each combat)\b",
                           m[1].replace("attack while creatures you control have total power", "attack")) or \
             re.match(r"(?:it|that|they|this) ", m[1]):
         return None
@@ -626,6 +648,8 @@ def observe(game, p, event, source=None, context=None, subject=None):
         return      # fired twice (with and without a source); listen once
     if event == "any_cast" and getattr(context, "controller", context) is not p:
         return      # fired once per player; listen to the caster's copy (context: the cast spell)
+    if event == "any_cast" and context is not None:
+        cx_trig_cast.record(game, context)      # ordinal heads count the turn's casts of one kind
     from .residual_templates import trigger_suppressed
     if trigger_suppressed(game, event, source, context, subject):
         return      # Torpor Orb and friends
@@ -713,13 +737,15 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
             return False
         if spec["player"] == "opp" and actor is me:
             return False
+        if spec["player"] == "enchanted" and (actor is None or getattr(perm, "curse_target", None) is not actor):
+            return False        # a Curse: the player it enchants
         kind = spec["kind"]
         if kind in ("cast", "cast_copy", "copy"):
             item = next((s for s in reversed(game.stack) if s.is_spell and s.card is subject), None) \
                 if subject is not None else None
             if item is None and game.stack and game.stack[-1].is_spell:
                 item = game.stack[-1]
-            if not _spell_ok(game, spec["spell"], item, actor, me, copied=event == "spell_copied"):
+            if not _spell_ok(game, spec["spell"], item, actor, me, copied=event == "spell_copied", perm=perm):
                 return False
             return item if actor is me else actor
         if kind == "draw_nth":
@@ -775,3 +801,4 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
 
 
 from . import cx_trig_events  # noqa: E402  (extends the player-verb table above)
+from . import cx_trig_cast  # noqa: E402  (cast-head qualifiers)

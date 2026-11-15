@@ -138,6 +138,12 @@ def parse_except(text: str, mods: dict | None = None) -> dict | None:
         mods["sac_end"] = True
         text = _SAC_QUOTE.sub("", text + ".").strip().rstrip(".").strip()
         text = re.sub(r"(?:,? and|,)$", "", text).strip()
+    quotes = []
+
+    def _grab(q):
+        quotes.append(q[1])
+        return f"QUOTED{len(quotes) - 1}"
+    text = re.sub(r'"([^"]+)"', _grab, text)
     if '"' in text or "." in text:
         return None
     for clause in _CLAUSE_SPLIT.split(text):
@@ -154,6 +160,24 @@ def parse_except(text: str, mods: dict | None = None) -> dict | None:
             mods["keep_name"] = True
             continue
         m = re.fullmatch(rf"(?:{_SUBJ} )?(?:has|have|gains?) (.+)", c, flags=re.I)
+        if m and "QUOTED" in m[1]:
+            # 'it has haste and "At the beginning of the end step, exile ~."': the quoted abilities become
+            # copiable values of the copy (rule 707.9a), next to any keywords in the same clause
+            words = [w for w in re.split(r",? and |, ", m[1]) if w]
+            for w in [w for w in words if re.fullmatch(r"QUOTED\d+", w)]:
+                grant = quoted_grant(quotes[int(w[6:])])
+                if grant is None:
+                    return None
+                mods["grant"] = _merge_grant(mods.get("grant", {}), grant)
+            rest = [w for w in words if not re.fullmatch(r"QUOTED\d+", w)]
+            if any("QUOTED" in w for w in rest):
+                return None
+            if rest:
+                kws = _keywords(" and ".join(rest))
+                if kws is None:
+                    return None
+                mods["keywords"] = mods.get("keywords", frozenset()) | kws
+            continue
         if m:
             kws = _keywords(m[1])
             if kws is None:
@@ -176,6 +200,55 @@ def parse_except(text: str, mods: dict | None = None) -> dict | None:
             continue
         return None
     return mods
+
+
+_PROBE_FIELDS_SKIPPED = ("oracle", "name", "unsupported", "approximations")
+
+
+def _probe(text: str):
+    from .cards import card_from_scryfall
+    return card_from_scryfall({"name": "Quoted Ability Probe", "mana_cost": "", "cmc": 0, "oracle_text": text,
+                               "type_line": "Creature — Shapeshifter", "power": "0", "toughness": "0"})
+
+
+def quoted_grant(text: str):
+    """The CardDef fields a quoted ability adds ({field: value}), or None unless the ordinary card parser
+    matches all of it without simplifications. The ability is parsed as the one line of a blank creature, so
+    a triggered, activated, mana or static ability reads "~" as the object that has it."""
+    import dataclasses as dc
+    probe = _probe(text)
+    if probe.unsupported or probe.approximations:
+        return None
+    blank = _probe("")
+    grant = {f.name: getattr(probe, f.name) for f in dc.fields(probe)
+             if f.name not in _PROBE_FIELDS_SKIPPED and getattr(probe, f.name) != getattr(blank, f.name)}
+    for name, value in grant.items():
+        if not isinstance(value, (list, tuple, set, frozenset, dict)) and getattr(blank, name) not in (None, "", 0, False):
+            return None           # a scalar the blank already sets: overwriting it isn't "adding an ability"
+    if grant.get("pt_cda"):
+        # "~'s power and toughness are each equal to ...": the ability defines them (rule 604.3); a */* card
+        # parses as 0/0 plus the count, so the copied base power and toughness go too
+        grant["power"], grant["toughness"] = 0, 0
+    return grant or None
+
+
+def _merge_grant(old: dict, new: dict) -> dict:
+    out = dict(old)
+    for name, value in new.items():
+        out[name] = _add_field(out[name], value) if name in out else value
+    return out
+
+
+def _add_field(current, value):
+    if isinstance(value, list):
+        return list(current or []) + list(value)
+    if isinstance(value, tuple):
+        return tuple(current or ()) + value
+    if isinstance(value, (set, frozenset)):
+        return frozenset(current or ()) | value
+    if isinstance(value, dict):
+        return {**(current or {}), **value}
+    return value
 
 
 def _perm_copy(m, **data):
@@ -351,7 +424,8 @@ def parse_line(line: str) -> dict | None:
     if m:
         cond = "creature" if m["creature"] else "another" if m["another"] else "gained_life" if m["life"] else ""
         return {"cast_copy": {"cond": cond, "n": "x" if m["x"] else 1}}
-    m = _CLONE.fullmatch(line)
+    # 'except it has "{T}: Add {U}."': the sentence ends inside the quote
+    m = _CLONE.fullmatch(line + "." if line.endswith('."') else line)
     if not m:
         return None
     mods = parse_except(m["exc"]) if m["exc"] else {}
@@ -445,6 +519,8 @@ def exception_changes(card, mods: dict) -> dict:
         changes["legendary"] = mods["legendary"]
     if mods.get("snow"):
         changes["snow"] = True
+    for name, value in mods.get("grant", {}).items():      # quoted abilities (quoted_grant)
+        changes[name] = _add_field(changes.get(name, getattr(card, name)), value)
     return changes
 
 

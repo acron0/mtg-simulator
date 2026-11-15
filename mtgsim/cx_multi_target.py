@@ -45,7 +45,6 @@ def _singular_np(rest: str):
     for plural, single in _IRREGULAR.items():
         np = re.sub(rf"\b{plural}\b", single, np)
     np = _PLURAL.sub(lambda m: m[1] or m[2], np)
-    np = np.replace(" and/or ", " or ")     # one object of "artifacts and/or enchantments" is an artifact or enchantment
     return np + tail
 
 
@@ -73,27 +72,49 @@ _AGREE = {"get": "gets", "gain": "gains", "have": "has", "become": "becomes", "l
           "scry": "scries", "surveil": "surveils", "shuffle": "shuffles", "put": "puts", "return": "returns"}
 
 
+_VERBS = "|".join(_AGREE)
+_OUTSIDE_QUOTES = r'(?=[^"]*(?:"[^"]*"[^"]*)*$)'          # an even number of quotes follows
+
+
 def _rewrite_any(s: str):
     m = _ANY.search(s)
+    head = s[:m.start()]
     rest = _singular_np(s[m.end():])
-    # "... each get +1/+0 and gain ...": the verbs agree with one target now
-    rest = re.sub(r"^((?:\s+\S+)*?)\s+each (get|gain|have|become|lose|deal|mill|discard|draw|sacrifice|create|scry|surveil|shuffle|put|return)\b",
-                  lambda v: v[1] + " " + _AGREE[v[2]], rest, count=1)
-    rest = re.sub(r'\band (get|gain|have|become|lose)\b(?=[^"]*(?:"[^"]*"[^"]*)*$)', lambda v: "and " + _AGREE[v[1]],
-                  rest, count=1)            # not inside a quoted ability (an even number of quotes follows)
-    return _plural_refs(s[:m.start()] + (m[1] or "") + "target" + rest)
+    players = re.match(r"\s+(?:player|opponent)\b", rest) is not None
+    # "... each get +1/+0 and gain ...", "Any number of target creatures become ...": the verbs agree with one target
+    agreed = re.sub(rf"^((?:\s+\S+)*?)\s+each ({_VERBS})\b", lambda v: v[1] + " " + _AGREE[v[2]], rest, count=1)
+    if agreed == rest and (not head or head.endswith(", ")):       # the list is the subject
+        agreed = re.sub(rf"^((?:\s+(?!(?:{_VERBS})\b)\S+)*?)\s+({_VERBS})\b", lambda v: v[1] + " " + _AGREE[v[2]],
+                        rest, count=1)
+    rest = re.sub(rf"(\band|, then) ({_VERBS})\b{_OUTSIDE_QUOTES}", lambda v: f"{v[1]} {_AGREE[v[2]]}", agreed)
+    if players:          # "each discard their hands": one player's own hand
+        rest = re.sub(r"\btheir (hand|graveyard)s\b", r"their \1", rest)
+        rest = re.sub(r"\btheir libraries\b", "their library", rest)
+    return _plural_refs(head + (m[1] or "") + "target" + rest, players)
 
 
-def _plural_refs(text: str):
+def _plural_refs(text: str, players: bool = False):
     head, quote, tail = text.partition('"')
     head = re.sub(r"\btheir owners'", "its owner's", head)
     head = re.sub(r"\btheir owner's\b", "its owner's", head)
     head = re.sub(r"\bits owner's (hand|librar|graveyard)(s|ies)\b",
                   lambda m: "its owner's " + {"librar": "library"}.get(m[1], m[1]), head)
     head = re.sub(r"\bthem\b", "it", head)
-    if re.search(r"\b(?:they|their|them|those|each|these)\b", head, re.I):
+    plural = r"\b(?:they|them|those|each|these)\b" if players else r"\b(?:they|their|them|those|each|these)\b"
+    if re.search(plural, head, re.I):
         return None
     return head + quote + tail
+
+
+def _parse_one(text: str):
+    """Parse the one-target sentence. "target artifact and/or enchantment" names one object, an artifact or an
+    enchantment: when the words as written don't parse, read them as "artifact or enchantment"."""
+    from .cards.parse import _parse_effects
+    text = text[0].upper() + text[1:] + "."
+    new, bad = _parse_effects(text)
+    if (bad or not new) and " and/or " in text:
+        new, bad = _parse_effects(text.replace(" and/or ", " or "))
+    return new, bad
 
 
 def legal_list(game, p, eff, tgt) -> bool:
@@ -121,13 +142,12 @@ def choose_list(game, me, eff) -> tuple:
 
 
 def _lift_any(s: str, effects: list) -> bool:
-    from .cards.parse import _parse_effects
     from .cards.model import Effect
     from .engine.state import TARGETED
     text = _rewrite_any(s)
     if text is None:
         return False
-    new, bad = _parse_effects(text[0].upper() + text[1:] + ".")
+    new, bad = _parse_one(text)
     if bad or not new or new[0].target not in TARGETED or new[0].target == "multi" or new[0].kind in _OWN_RULES:
         return False
     if any(e.target != "prev" for e in new[1:]) or any(e.cond or e.data.get("distinct") or
@@ -139,7 +159,6 @@ def _lift_any(s: str, effects: list) -> bool:
 
 def lift(s: str, effects: list) -> bool:
     """Parse s, a sentence with one counted target ("up to two target creatures"), into effects. True if it did."""
-    from .cards.parse import _parse_effects
     from .engine.state import TARGETED
     if chain_rider(s, effects):
         return True
@@ -160,7 +179,7 @@ def lift(s: str, effects: list) -> bool:
     text = _rewrite(s, n)
     if text is None:
         return False
-    new, bad = _parse_effects(text[0].upper() + text[1:] + ".")
+    new, bad = _parse_one(text)
     if bad or not new:
         return False
     targeted = [i for i, e in enumerate(new) if e.target in TARGETED]

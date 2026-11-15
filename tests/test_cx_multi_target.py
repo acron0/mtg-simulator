@@ -256,5 +256,65 @@ class Strive(Base):
                 self.assertEqual(card_coverage(db.get(name)).status, "full")
 
 
+class Lists391(Base):
+    """"and/or" nouns, player lists and list subjects with bare verbs (#391 slice D)."""
+    def test_and_or_noun_is_one_object_of_either_type(self):
+        consign = parsed("Destroy any number of target artifacts and/or enchantments.")
+        self.assertEqual(consign[0].data["probe"].target, "artifact_enchantment")
+        vigor = parsed("Destroy up to two target artifacts and/or enchantments.")
+        self.assertEqual([(e.kind, e.target) for e in vigor], [("destroy", "artifact_enchantment")] * 2)
+
+    def test_and_or_wording_that_parses_as_written_is_kept(self):
+        untap = parsed("Untap up to four target artifacts and/or creatures.")
+        self.assertEqual(len(untap), 4)
+        self.assertTrue(all(e.kind == "untap_prev" and e.data.get("cx_desc") == "artifact and/or creature"
+                            for e in untap))             # not an "artifact or creature you control" template
+
+    def test_player_lists(self):
+        for text in ("Any number of target players each mill two cards.",
+                     "Any number of target players each mill a card and lose 1 life.",
+                     "Any number of target opponents each discard their hands, then draw seven cards."):
+            with self.subTest(text):
+                got = parsed(text)
+                self.assertEqual([(e.kind, e.target) for e in got], [("cx_multi", "multi")])
+
+    def test_compound_keeps_the_list_subject(self):
+        effects, _ = _parse_effects("Any number of target players each mill a card and lose 1 life.")
+        self.assertEqual(len(effects), 1)                  # never "you lose 1 life"
+        inner = effects[0].data["chain"][0]
+        self.assertEqual([e.kind for e in inner.data["effects"]], ["mill", "lose_life"])
+
+    def test_bare_plural_verb_after_the_list(self):
+        sway = parsed("Any number of target creatures become the color of your choice until end of turn.")
+        self.assertEqual(sway[0].data["probe"].kind, "cx_retype")
+        self.assertIsNone(parsed("Any number of target creatures frobnicate."))
+
+    def test_wheel_resolves_for_each_chosen_opponent_only(self):
+        wheel = self.spell("Any number of target opponents each discard their hands, then draw seven cards.")
+        self.b.hand = [BEAR] * 3
+        self.a.hand = [BEAR] * 2
+        targets = self.game.auto_targets(self.a, wheel.spell_effects)
+        self.assertEqual(targets, [(self.b,)])              # the AI aims a wheel at the opponent
+        self.resolve(wheel, targets)
+        self.assertEqual((len(self.a.hand), len(self.b.hand)), (2, 7))
+        self.assertEqual(len(self.b.graveyard), 3)
+
+    def test_mill_and_lose_life_for_each_member(self):
+        tiny = self.spell("Any number of target players each mill a card and lose 1 life.")
+        self.resolve(tiny, [(self.a, self.b)])
+        self.assertEqual((len(self.a.library), len(self.b.library)), (19, 19))
+        self.assertEqual((self.a.life, self.b.life), (19, 19))
+
+    @unittest.skipUnless(os.path.exists(DB), "card database not built")
+    def test_real_cards_are_full(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.coverage import card_coverage
+        db = CardDB(offline=True)
+        for name in ("Consign to Dust", "Force of Vigor", "Sea God's Scorn", "Riverchurn Monument",
+                     "Tinybones Joins Up", "Wheel and Deal", "Sway of Illusion", "Repulsor Bots"):
+            with self.subTest(name):
+                self.assertEqual(card_coverage(db.get(name)).status, "full")
+
+
 if __name__ == "__main__":
     unittest.main()

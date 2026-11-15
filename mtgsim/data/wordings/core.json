@@ -483,6 +483,23 @@
     "cards": ["Cast Away Doubt"]
   },
   {
+    "match": "exile (a|one|two|three|four|five) cards? from your graveyard",
+    "effect": "exile_own_gy_n",
+    "amount": "$1:num",
+    "example": "exile two cards from your graveyard",
+    "cards": ["Bloodcurdler"],
+    "note": "an effect, not a cost: exile that many of your own graveyard's cards, all of them when there are fewer"
+  },
+  {
+    "match": "put another \\+1/\\+1 counter on ~",
+    "effect": "p1_counters",
+    "amount": 1,
+    "target": "self",
+    "example": "put another +1/+1 counter on ~",
+    "cards": ["Chlorophant"],
+    "note": "'another' only says ~ may already have one: one more +1/+1 counter"
+  },
+  {
     "match": "put (a|one|two|three|four|five|six) \\+1/\\+1 counters? on it",
     "effect": "p1_counters",
     "amount": "$1:num",

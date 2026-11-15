@@ -129,7 +129,7 @@ class Instead(Base):
 
     def test_rejects_what_it_cannot_tie(self):
         for text in ("If a creature died this turn, you gain 8 life instead.",          # nothing before it
-                     "Draw a card. If a creature died this turn, you gain 8 life instead."):  # a different effect
+                     "Draw a card and scry 1. If a creature died this turn, draw two cards and you gain 8 life instead."):
             effects, bad = self.parse(text)
             self.assertTrue(bad, text)
             self.assertFalse(any(e.data.get("cx_instead") for e in effects))

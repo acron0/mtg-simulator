@@ -535,6 +535,8 @@ def protective_ability(game: Game, me: Player, item, victim):
             if not saves or e.target not in ("creature", "creature_mine", "any", "self") or \
                     e.target == "self" and perm is not victim:
                 continue
+            if e.target != "self" and not game.passes_filter(e, victim, me):
+                continue            # "target artifact creature", "target Cleric or Wizard creature" (#333)
             first = [] if e.target == "self" else [victim]
             return ("activate", perm, f"ability:{i}", first + [None] * (len(act.effects) - len(first)))
     for pl in game.players:      # an "any player may activate" saver on someone else's permanent
@@ -551,7 +553,8 @@ def protective_ability(game: Game, me: Player, item, victim):
                          (any(x.kind == "destroy" for x in item.effects)
                           or damage >= victim.toughness - victim.damage)
                          or e.kind == "prevent_next" and damage and victim.toughness - victim.damage > damage - e.amount)
-                if not saves or e.target not in ("creature", "creature_mine", "any"):
+                if not saves or e.target not in ("creature", "creature_mine", "any") \
+                        or not game.passes_filter(e, victim, me):
                     continue
                 return ("activate", perm, f"ability:{i}", [victim] + [None] * (len(act.effects) - 1))
     return None

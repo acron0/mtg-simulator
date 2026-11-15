@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from .cx_grammar import Part, ai_value, count, object_phrase, verb
+from .cx_grammar import Part, ai_value, count, object_phrase, rider, verb
 
 _KINDS = {"destroy": "destroy", "exile": "exile_permanent", "return": "bounce"}
 # Words that turn a zone change into something these kinds don't do: linked exile, a rider, a choice, a
@@ -175,9 +175,9 @@ _CARD_TYPES = ("artifact", "creature", "enchantment", "land", "instant", "sorcer
                "permanent")
 _TYPE = "|".join(_CARD_TYPES)
 _CARD_NOUN = re.compile(
-    rf"(?:({_COLOR}|colorless|multicolored) )?(?:non({_TYPE}) )?"
+    rf"(?:(legendary|nonlegendary|historic) )?(?:({_COLOR}|colorless|multicolored) )?(?:non({_TYPE}) )?"
     rf"(?:((?:{_TYPE})(?:(?:,? or |, | and/or )(?:{_TYPE}))*) )?cards?"
-    r"(?: with (mana value|power|toughness) (.+))?")
+    r"(?: with (mana value|power|toughness) (.+)| with ([a-z ]+))?")
 _ZONES = {"your graveyard": "you", "a graveyard": "any", "an opponent's graveyard": "opp"}
 
 
@@ -187,11 +187,19 @@ def card_noun(text: str):
     m = _CARD_NOUN.fullmatch(text)
     if m is None:
         return None
+    legend, m = m[1], [None, *m.groups()[1:]]
     spec = {"types": re.split(r",? or |, | and/or ", m[3]) if m[3] else []}
+    if legend:                  # "nonlegendary creature card" (Persist), "historic permanent card"
+        spec["legend"] = legend
     if m[1]:
         spec["color"] = m[1]
     if m[2]:
         spec["non"] = m[2]
+    if m[6]:                    # "creature card with infect" (Corpse Cur): a keyword the card has printed
+        from .cards.model import KEYWORDS
+        if m[6] not in KEYWORDS:
+            return None
+        spec["keyword"] = m[6]
     if m[4]:
         bound = re.fullmatch(r"(\d+) or (less|greater)", m[5])
         if bound:
@@ -212,6 +220,14 @@ def card_fits(card, spec, source=None) -> bool:
     if spec["types"] and not any(is_type(t) for t in spec["types"]):
         return False
     if spec.get("non") and is_type(spec["non"]):
+        return False
+    legend = spec.get("legend")
+    if legend:
+        legendary = bool(card.legendary)
+        if not {"legendary": legendary, "nonlegendary": not legendary,
+                "historic": bool(legendary or card.is_artifact or card.is_saga)}[legend]:
+            return False
+    if spec.get("keyword") and spec["keyword"] not in card.keywords:
         return False
     color = spec.get("color")
     if color == "colorless" and card.colors or color == "multicolored" and len(card.colors) < 2:
@@ -276,15 +292,47 @@ def _card_object(text: str, zone: str):
 _GY = r"(.+?) from (your graveyard|a graveyard|an opponent's graveyard)"
 
 
+_ENTRY_NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3}
+_ENTRY_COUNTER = r"(?:a|an|one|two|three) (?:[+-]\d+/[+-]\d+|[a-z]+(?: [a-z]+)?) counters?"
+
+
+def entry_counters(text):
+    """{name: n} for "with a finality counter on it", "with a hexproof counter and an indestructible counter on
+    it", "with two +1/+1 counters on it"; None for a counter the engine has no rules for (shield, ...)."""
+    from .cards.model import KEYWORDS
+    m = re.fullmatch(rf" with ({_ENTRY_COUNTER})(?:,? and ({_ENTRY_COUNTER}))? on it", text)
+    if m is None:
+        return None
+    out = {}
+    for item in filter(None, (m[1], m[2])):
+        n, name = item.split(" ", 1)
+        name = re.sub(r" counters?$", "", name)
+        if name in out or not (name in KEYWORDS or name in ("finality", "stun")
+                               or re.fullmatch(r"[+-]\d+/[+-]\d+", name)):
+            return None
+        out[name] = _ENTRY_NUM[n]
+    return out
+
+
 @verb(rf"return {_GY} to (your hand|its owner's hand|their owners' hands|their hand|the battlefield)"
-      r"( tapped(?: and attacking)?)?",
+      rf"( tapped(?: and attacking)?)?( with {_ENTRY_COUNTER}(?:,? and {_ENTRY_COUNTER})? on it)?",
       heads=("return",), subjects=("imperative", "player"))
 def return_card(m, clause):
-    """"Return target creature card from your graveyard to your hand / to the battlefield [tapped]", "Return target
-    card from a graveyard to its owner's hand": cx_card_move. The card goes to its owner's hand; to the battlefield
-    only from your own graveyard (under your control)."""
+    """"Return target creature card from your graveyard to your hand / to the battlefield [tapped] [with a finality
+    counter on it]", "Return target card from a graveyard to its owner's hand": cx_card_move. The card goes to its
+    owner's hand; to the battlefield only from your own graveyard (under your control)."""
     if clause.duration:
         return None
+    if m[5]:
+        counters = entry_counters(m[5])
+        if counters is None or m[3] != "the battlefield":
+            return None
+        parts = _return_parts(m[1], m[2], m[3], m[4], clause)
+        for part in parts or ():
+            inner = part.data.get("effects")
+            for target in (inner if inner else [part]):
+                target.data = dict(target.data, counters=counters)
+        return parts
     return _return_parts(m[1], m[2], m[3], m[4], clause)
 
 
@@ -380,3 +428,22 @@ def grave_cards(game, p, eff):
     source = getattr(game.target_source, "source", game.target_source)
     excluded = getattr(source, "front", source) if eff.data.get("other") else None
     return [c for o in owners for c in o.graveyard if c is not excluded and card_fits(c, eff.data["cx_card"], source)]
+
+
+@rider(r"for each color, (return up to one target (?:(?:creature|permanent|artifact|enchantment|land|instant|sorcery) )?"
+       r"cards?) of that color (from your graveyard to (?:your hand|the battlefield))")
+def each_color(m, inner):
+    """"For each color, return up to one target [creature] card of that color from your graveyard to your hand"
+    (All Suns' Dawn, Rogues' Gallery): five optional targets, one per color; one card can't fill two slots (a
+    single word "target", rule 601.2c), so the slots are distinct."""
+    head, rest = m[1], m[2]
+    out = []
+    for color in ("white", "blue", "black", "red", "green"):
+        effects = inner(head.replace("target ", f"target {color} ", 1) + " " + rest)
+        if not effects or len(effects) != 1 or effects[0].kind != "cx_card_move" or effects[0].target != "graveyard_card":
+            return None
+        eff = effects[0]
+        eff.data = dict(eff.data, distinct=True, group="cx_each_color")
+        out.append(eff)
+    return out
+

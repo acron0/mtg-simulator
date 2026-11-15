@@ -246,6 +246,8 @@ class StackMixin:
                                if e.data.get("xq", ("",))[0] == "spell" or e.target == "that_controller"
                                or e.data.get("who") == "spell_controller" else e
                                for e in effects]
+                from ..cx_grammar_zones import bake_event
+                effects = bake_event(effects, subject)      # "with lesser mana value": the event creature's (LKI)
                 if subject is not None and any(e.data.get("subject_power") for e in effects):
                     effects = [dataclasses.replace(e, amount=max(0, subject.power)) if e.data.get("subject_power")
                                else e for e in effects]

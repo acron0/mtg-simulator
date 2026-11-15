@@ -484,9 +484,11 @@ def fits(card, what: str, perm=None) -> bool:
         ok = True
         for w in alt.split():
             lw = w.lower()
-            if lw in ("permanent", "nonlegendary"):
+            if lw == "permanent":
                 continue
-            if lw == "token":
+            if lw in ("legendary", "nonlegendary"):       # "another legendary creature you control dies" (Havi)
+                ok &= bool(card.legendary) == (lw == "legendary")
+            elif lw == "token":
                 ok &= card.is_token
             elif lw == "nontoken":
                 ok &= not card.is_token

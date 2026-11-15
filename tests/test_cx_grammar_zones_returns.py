@@ -141,5 +141,73 @@ class Resolving(Base):
         self.assertIsNotNone(ISLAND)
 
 
+
+@unittest.skipUnless(DB_FILE.exists(), "card database not built")
+class LesserThanTheEventCreature(Base):
+    """"with lesser mana value / toughness": than the creature the trigger is about, fixed as it queues (LKI)."""
+    def setUp(self):
+        super().setUp()
+        self.db = CardDB(offline=True)
+
+    def real(self, name, owner):
+        return self.perm(self.db.get(name), owner)
+
+    def test_havi_returns_a_smaller_legend_tapped_also_on_its_own_death(self):
+        for own in (False, True):
+            with self.subTest(own=own):
+                self.setUp()
+                havi = self.real("Havi, the All-Father", self.a)
+                kaalia = self.real("Kaalia of the Vast", self.a)        # mana value 4
+                self.a.graveyard.extend([self.db.get("Isamaru, Hound of Konda"), self.db.get("Grizzly Bears"),
+                                         self.db.get("Avacyn, Angel of Hope")])
+                self.game.dies(havi if own else kaalia)
+                self.game.settle()
+                isamaru = [x for x in self.a.battlefield if x.card.name == "Isamaru, Hound of Konda"]
+                self.assertEqual(len(isamaru), 1)
+                self.assertTrue(isamaru[0].tapped)
+                self.assertNotIn("Avacyn, Angel of Hope", [x.card.name for x in self.a.battlefield])
+
+    def test_havi_ignores_a_nonlegendary_death(self):
+        self.real("Havi, the All-Father", self.a)
+        bear = self.perm(BEAR, self.a)
+        self.a.graveyard.append(self.db.get("Isamaru, Hound of Konda"))
+        self.game.dies(bear)
+        self.game.settle()
+        self.assertEqual(len(self.a.graveyard), 2)
+
+    def test_colfenor_lesser_toughness_to_hand(self):
+        self.real("Colfenor, the Last Yew", self.a)
+        mid = self.perm(card("Test Mid", "{3}", "Creature — Elf", "", 3, 3), self.a)
+        small, big = card("Test Small", "{1}", "Creature — Elf", "", 2, 2), card("Test Big", "{6}", "Creature — Giant",
+                                                                                  "", 6, 6)
+        self.a.graveyard.extend([small, big])
+        self.game.dies(mid)
+        self.game.settle()
+        self.assertEqual([c.name for c in self.a.hand], ["Test Small"])
+
+    def test_riveteers_reads_the_sacrificed_creature(self):
+        self.real("Riveteers Ascendancy", self.a)
+        mid = self.perm(card("Test Mid", "{3}", "Creature — Elf", "", 3, 3), self.a)
+        self.a.graveyard.extend([card("Test Two", "{2}", "Creature — Elf", "", 2, 2),
+                                 card("Test Three", "{3}", "Creature — Elf", "", 1, 1)])
+        self.game.sacrifice(mid)
+        self.game.settle()
+        back = [x for x in self.a.battlefield if x.card.name == "Test Two"]
+        self.assertEqual(len(back), 1)
+        self.assertTrue(back[0].tapped)
+
+    def test_no_event_creature_nothing_qualifies(self):
+        spell = self.spell("Return target creature card with lesser mana value from your graveyard to your hand.")
+        self.a.graveyard.append(BEAR)
+        self.assertEqual(self.game.legal_targets(self.a, spell.spell_effects[0]), [])
+
+    def test_copies_fits_reads_legendary_words(self):
+        from mtgsim import copies
+        self.assertTrue(copies.fits(LEGEND, "legendary creature"))
+        self.assertFalse(copies.fits(LEGEND, "nonlegendary creature"))
+        self.assertTrue(copies.fits(BEAR, "nonlegendary creature"))
+        self.assertFalse(copies.fits(BEAR, "legendary creature"))
+
+
 if __name__ == "__main__":
     unittest.main()

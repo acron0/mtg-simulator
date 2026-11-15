@@ -26,6 +26,7 @@ _HOSTILE = re.compile(r"(?:an opponent controls|you don't control)\.?$", re.I)
 
 
 def rewrite(events, line: str, rest: str) -> str:
+    line = re.sub(r"^[A-Z][\w' ,-]* — ", "", line)       # an ability word ("Vibro-Shock Gauntlets — When ~ enters, ...")
     if events not in _SELF_EVENTS or not re.match(r"When(?:ever)? ~ ", line):
         return rest
     if events == ("attacks",) and line.startswith("Whenever ~ attacks, ") and " damage to each " in rest:
@@ -33,9 +34,9 @@ def rewrite(events, line: str, rest: str) -> str:
     if events == ("combat_damage_player",) and line.startswith("Whenever ~ deals combat damage to a player, "):
         rest = re.sub(r"\bdamage to target creature that player controls\b",
                       "damage to target creature an opponent controls", rest)
-    if events != ("combat_damage_player",) and events != ("dies",) and re.match(r"it deals \w+ damage to [^.]* and ",
-                                                                                rest):
-        return "~" + rest[2:]
+    m = re.match(r"(?:it|he|she) deals \w+ damage to [^.]* and ", rest)
+    if events != ("combat_damage_player",) and events != ("dies",) and m:
+        return "~" + rest[rest.index(" deals"):]          # "it" / "he" / "she": the permanent itself (Shocker)
     if re.match(r"you may have it (?:deal|fight)\b", rest):
         plain = re.fullmatch(r"you may have it deal \d+ damage to (?:any target|target [a-z' -]+)\.?", rest, re.I)
         if not plain or _HOSTILE.search(rest):

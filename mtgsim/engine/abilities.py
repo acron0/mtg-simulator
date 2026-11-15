@@ -320,7 +320,7 @@ class AbilitiesMixin:
             return False
         if p.counters.get("energy", 0) < c.get("energy", 0):
             return False
-        if c.get("life") and p.life <= c["life"]:
+        if c.get("life") and p.life < c["life"]:          # CR 119.4: paying your last life is legal
             return False
         if c.get("discard") and len(p.hand) < c["discard"]:
             return False

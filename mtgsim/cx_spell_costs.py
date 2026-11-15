@@ -33,8 +33,12 @@ import re
 
 from .cards.model import parse_mana_cost
 
-_NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
-_Q = r"(a|an|one|two|three|four|five|six|seven)"
+_NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+        "X": "x", "any number of": "any"}
+_Q = r"(a|an|one|two|three|four|five|six|seven|X|any number of)"
+# kinds whose count may be X (chosen as the spell is cast) or "any number of"
+_COUNTED = {"discard": "xa", "discard_random": "x", "life": "x", "sac": "xa", "bounce": "xa", "tap": "xa",
+            "exile_gy": "xa"}
 _VERB = r"(?:sacrifice|discard|pay|exile|return|tap|put|reveal) "
 _TYPES = {"artifacts": "artifact", "creatures": "creature", "lands": "land", "enchantments": "enchantment",
           "planeswalkers": "planeswalker"}
@@ -61,15 +65,15 @@ def _part(text: str):
     m = re.fullmatch(r"behold an? ([A-Z][\w'-]+) and exile it", text)
     if m:     # choose a <Sub> you control or a <Sub> card in your hand, and exile it
         return ("behold_exile", 1, {"sub": [m[1]]})
-    m = re.fullmatch(r"pay (\d+) life", text)
+    m = re.fullmatch(r"pay (\d+|X) life", text)
     if m:
-        return ("life", int(m[1]), {})
+        return ("life", "x" if m[1] == "X" else int(m[1]), {})
     m = re.fullmatch(r"pay ((?:\{[0-9WUBRGC]\})+)", text)
     if m:
         return ("mana", 0, parse_mana_cost(m[1]))
-    m = re.fullmatch(rf"discard {_Q} cards?", text)
+    m = re.fullmatch(rf"discard {_Q} cards?( at random)?", text)
     if m:
-        return ("discard", _NUM[m[1]], {})
+        return ("discard_random" if m[2] else "discard", _NUM[m[1]], {})
     m = re.fullmatch(rf"exile {_Q} (?:(.+?) )?cards? from your graveyard", text)
     if m:
         spec = _filter(m[2] + " card", False) if m[2] else {}
@@ -87,7 +91,7 @@ def _part(text: str):
             continue
         n = _NUM[m[1]]
         desc = re.sub(r" cards$", " card", m[2])
-        spec = _filter(desc, n > 1)
+        spec = _filter(desc, not isinstance(n, int) or n > 1)
         if spec is None or (kind in ("discard", "reveal") and "card" not in spec.get("types", ())):
             return None
         if kind == "m1_counter" and "creature" not in spec.get("types", ()):
@@ -104,6 +108,10 @@ def parse_cost(text: str):
         if not parts or None in parts or sum(k == "mana" for k, _, _ in parts) > 1:
             return None
         alts.append(parts)
+    counted = [(k, n) for alt in alts for k, n, _ in alt if not isinstance(n, int)]
+    if counted and (len(counted) > 1 or len(alts) > 1 or
+                    any({"x": "x", "any": "a"}[n] not in _COUNTED.get(k, "") for k, n in counted)):
+        return None          # one X / "any number of" part, in a cost without alternatives
     return tuple(alts)
 
 
@@ -173,6 +181,20 @@ def _pick(game, p, card, alt, avoid=()):
     used, out = set(), []
     sources = None
     for kind, n, spec in alt:
+        if not isinstance(n, int):          # X / "any number of": chosen now (601.2b)
+            pool = [] if kind in ("life", "discard_random") else \
+                [x for x in _cheap(_candidates(game, p, card, kind, spec)) if id(x) not in used]
+            if kind == "discard_random":
+                pool = list(_candidates(game, p, card, "discard", spec))
+            if n == "any":              # "any number of": never the spell's own targets
+                pool = [x for x in pool if not any(x is t for t in avoid)]
+            else:
+                pool.sort(key=lambda x: any(x is t for t in avoid))       # stable: targets last
+            k = choose_count(game, p, card, kind, spec, pool, n)
+            picks = tuple(pool[:k]) if kind not in ("life", "discard_random") else ()
+            used.update(id(x) for x in picks)
+            out.append((kind, k, dict(spec, counted=n), picks))
+            continue
         if kind == "life":
             if life_locked(p) or p.life <= n:
                 return None
@@ -198,6 +220,68 @@ def _pick(game, p, card, alt, avoid=()):
             used.update(id(x) for x in picks)
         out.append((kind, n, spec, picks))
     return out
+
+
+def _unit_cheap(x) -> bool:
+    """For "any number of": a permanent the AI gives up freely (a token or a small creature)."""
+    from .engine.policy import perm_value
+    return x.card.is_token or (x.is_creature and perm_value(x) <= 1.0)
+
+
+def sized(card, x: int):
+    """card with its X effects at x and without its additional cost (for valuing one choice of X)."""
+    import dataclasses
+    effects = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2,
+                                   data={**e.data, "x": False, "x_n": False})
+               if (e.data or {}).get("x") or (e.data or {}).get("x_n") else e
+               for e in card.spell_effects]
+    rules = {k: v for k, v in (card.advanced_rules or {}).items() if k != KEY}
+    return dataclasses.replace(card, spell_effects=effects, advanced_rules=rules)
+
+
+def choose_count(game, p, card, kind, spec, pool, mode) -> int:
+    """How many: p's ``choose_cost_count`` hook if it has one; else for "any number of" every cheap unit, and for
+    X the value-maximising X: the AI's own plan for the spell sized at X, less what paying X gives up."""
+    hook = getattr(p.ai, "choose_cost_count", None)
+    if hook is not None:
+        return max(0, min(int(hook(game, p, card, kind, pool, mode)), len(pool) if pool else p.life - 1))
+    limit = min(10, p.life - 1 if kind == "life" else len(pool))
+    if kind == "life" and _life_locked(p):
+        limit = 0
+    if mode == "any":
+        return sum(1 for x in pool[:limit] if _unit_cheap(x))
+    plan = getattr(p.ai, "plan_spell", None)
+    if plan is None or card.is_permanent or limit < 1:
+        return 0
+    best, best_k = 0.0, 0
+    for k in range(1, limit + 1):
+        try:
+            got = plan(game, p, sized(card, k))
+        except Exception:        # an evaluation the AI can't make: don't pay
+            got = None
+        if not got:
+            continue
+        net = got[0] - _value(p, [(kind, k, spec, tuple(pool[:k]))])
+        if net > best + 1e-9:
+            best, best_k = net, k
+    return best_k
+
+
+def _life_locked(p) -> bool:
+    from .residual_templates import life_locked
+    return bool(life_locked(p))
+
+
+def has_x_cost(card) -> bool:
+    return any(n == "x" for alt in alternatives(card) for _, n, _ in alt)
+
+
+def cost_x(game, p, card):
+    """The X this cast's additional cost will pay (for the AI's sizing), or None without an X part."""
+    if not has_x_cost(card):
+        return None
+    chosen = choose(game, p, card)
+    return next((k for kind, k, spec, _ in chosen[1] if spec.get("counted") == "x"), 0) if chosen else None
 
 
 def _order(alts):
@@ -278,6 +362,7 @@ def pay(game, p, card, chosen) -> tuple | None:
     from .engine.state import Permanent
     sac_stats = None
     game._add_cost_exiled = []      # (card, owner) exiled until the permanent this spell becomes leaves
+    game._add_cost_x, game._add_cost_this_way = None, None
     for kind, n, spec, picks in chosen[1]:
         if kind == "behold_exile":
             x = picks[0]
@@ -302,8 +387,21 @@ def pay(game, p, card, chosen) -> tuple | None:
             return False
         if kind == "exile_gy" and any(c not in p.graveyard for c in picks):
             return False
+        if spec.get("counted") == "x":
+            game._add_cost_x = n
+        if spec.get("counted") == "any" and kind == "sac" and n:
+            nouns = {t.lower() for x in picks for t in x.card.types} | {"permanent"}
+            game._add_cost_this_way = ("sacrificed", frozenset(nouns), n)
         if kind == "life":
-            game.change_life(p, -n, f"{card.name}: additional cost")
+            if n:
+                game.change_life(p, -n, f"{card.name}: additional cost")
+        elif kind == "discard_random":
+            for _ in range(n):
+                if not p.hand:
+                    return False
+                c = game.rng.choice(list(p.hand))
+                game.discard_card(p, c)
+                game.log(f"discards {c.name} at random for {card.name}", p)
         elif kind in ("sac", "sac_all"):
             for x in picks:
                 if sac_stats is None and x.is_creature:
@@ -329,8 +427,9 @@ def pay(game, p, card, chosen) -> tuple | None:
                 game.log(f"puts a -1/-1 counter on {x.card.name} for {card.name}", p)
         elif kind == "discard":
             pool = list(picks)
+            plain = not {k: v for k, v in spec.items() if k != "counted"}
             for _ in range(n):
-                choice = p.ai.choose_discard(game, p) if not spec else None
+                choice = p.ai.choose_discard(game, p) if plain else None
                 c = choice if any(choice is x for x in _candidates(game, p, card, kind, spec)) else pool[0]
                 if c in pool:
                     pool.remove(c)
@@ -349,6 +448,17 @@ def pay(game, p, card, chosen) -> tuple | None:
         elif kind == "reveal":
             game.log(f"reveals {picks[0].name} for {card.name}", p)
     return sac_stats
+
+
+def to_item(game, item, chosen):
+    """After the cast: what the paid cost hands to the spell (the X, "sacrificed this way", beheld cards)."""
+    item.behold_exiled = list(getattr(game, "_add_cost_exiled", ())) if chosen is not None else []
+    if chosen is None:
+        return
+    if getattr(game, "_add_cost_x", None) is not None:
+        item.x = game._add_cost_x
+    if getattr(game, "_add_cost_this_way", None) is not None:
+        item.this_way = game._add_cost_this_way
 
 
 def ai_cost(game, p, card) -> float:
@@ -374,7 +484,7 @@ def _value(p, picked) -> float:
         elif kind == "discard_hand":
             value += 0.8 * max(0, len(p.hand) - 1)
         elif kind == "life":
-            value += 0.25 * n
+            value += 0.25 * n + max(0, 8 - max(0, p.life - n)) if n else 0.0
         elif kind == "tap":
             value += 0.2 * n
     return value

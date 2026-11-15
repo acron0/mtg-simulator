@@ -777,6 +777,10 @@ class HeuristicAI:
     @staticmethod
     def _sized(game: Game, me: Player, card: CardDef):
         """An X spell with X fixed at the largest value the remaining mana pays for, else None."""
+        from .cx_spell_costs import cost_x, sized
+        paid = cost_x(game, me, card)              # "discard X cards" / "pay X life": X chosen by the cost
+        if paid is not None:
+            return sized(card, paid) if paid >= 1 else None
         x = 0
         cost = game.cost_of(me, card)
         while x < 20 and engine.find_payment(game.mana_sources(me, spell=card), engine.add_costs(
@@ -796,7 +800,8 @@ class HeuristicAI:
             # Unearth: a hasty attacker for one turn; worth casting before combat when it can attack
             base = card.spell_effects[0].data["card"]
             return (card_value(base) / 2 + 1, None) if base.is_creature and opp.life > 0 else None
-        if not card.is_permanent and any((e.data or {}).get("x") for e in card.spell_effects):
+        from .cx_spell_costs import has_x_cost
+        if not card.is_permanent and (any((e.data or {}).get("x") for e in card.spell_effects) or has_x_cost(card)):
             sized = self._sized(game, me, card)
             return None if sized is None else self.plan_spell(game, me, sized, precombat)
         if card.is_permanent:
@@ -968,6 +973,13 @@ class HeuristicAI:
                     return None
                 targets.append(tgt)
                 value += 1.0
+            elif eff.kind == "gy_move" and eff.data.get("zone") == "mine" and not eff.data.get("x_n"):
+                # "return N target <desc> cards from your graveyard to your hand / the battlefield": the best N
+                from .engine.state import _gy_desc
+                pool = sorted((c for c in me.graveyard if copies.fits(c, _gy_desc(eff.data.get("what", "")))),
+                              key=lambda c: -c.cmc)[:max(1, eff.amount)]
+                targets.append(None)
+                value += sum((card_value(c) if eff.data.get("dest") == "bf" else 1.0) + 0.5 * c.cmc for c in pool)
             elif eff.kind == "add_mana":
                 targets.append(None)      # value already counted once by _mana_spell_value
             else:

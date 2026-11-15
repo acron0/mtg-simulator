@@ -447,6 +447,9 @@ _N_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "x":
 def _gy_move(m):
     head = (m[1] or "").lower()
     what = m[2]
+    bare = re.fullmatch(r"((?:one|two|three|four|five|six|x) (?:other )?target)", what, re.I)
+    if bare and not head:       # "Return X target cards from ...": the count, any card (not a card type "X target")
+        head, what = bare[1].lower() + " ", ""
     if re.search(r"\b(this|named|that)\b", what) or what.lower().startswith("up to"):
         return NO_MATCH
     w = re.search(r"(one|two|three|four|five|six|x)", head)

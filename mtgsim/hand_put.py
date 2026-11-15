@@ -18,9 +18,8 @@ The effect is the existing ``hand_to_battlefield`` kind; its data gains
 * ``entry``: "tapped", "attacking" (tapped and attacking the opponent), "attached" (an Aura attached to the
   source, which must be a legal host) or "blocking" (blocking the attacker a block trigger names: Aetherplasm).
 
-The controller's own hand, and "target opponent may put ... from their hand" (Wumpus Aberration; with two
-players the one opponent, ``who: "opp"``), whose own policy decides. "each player may" / "that player may" are
-left unmatched, as are quantities ``_xq`` doesn't know ("that damage": #313).
+Only the controller's own hand is covered: "each player may" / "that player may" need a decision by another
+player and are left unmatched, as are quantities ``_xq`` doesn't know ("that damage": #313).
 """
 from __future__ import annotations
 
@@ -131,19 +130,7 @@ SUBS = [
 
 _MV = (r"(?: with mana value (?:(?P<n>\d+) or (?P<dir>less|greater|more)|(?P<op>equal to|less than or equal to|X or less|X)"
        r"(?: (?P<q>(?!from\b).+?))?)| with (?P<rel>lesser|equal or lesser) (?P<stat>power|toughness))?")
-def _opponent_puts(m):
-    """Target opponent may put a creature card from their hand onto the battlefield (Wumpus Aberration)."""
-    import dataclasses
-    from .cards import NO_MATCH
-    inner = re.fullmatch(EFFECT_PATTERNS[1][0], f"put {m[1]} from your hand onto the battlefield", re.I)
-    built = _build(inner) if inner else NO_MATCH
-    if built is NO_MATCH or set(built.data) - {"spec"}:
-        return NO_MATCH            # the plain put only: no entry, quantity or end-step rider
-    return dataclasses.replace(built, data=dict(built.data, who="opp"))
-
-
 EFFECT_PATTERNS = [
-    (r"target opponent may put (an? [\w ,'/-]+? card) from their hand onto the battlefield", _opponent_puts),
     (r"(?:you may )?put (?:an?|one) (?P<desc>[\w ,'/-]+?) card(?: or an? (?P<desc2>[\w '/-]+?) card)?"
      r"(?P<chosen> of the chosen type)?" + _MV +
      r" from your hand onto the battlefield(?: (?P<entry>tapped and attacking(?: that opponent)?|tapped|attached to ~|blocking that creature))?"
@@ -408,8 +395,6 @@ def resolve(game, p, eff, item, target=None, prev=None):
 
 def _put(game, p, eff, item):
     from .engine.state import Permanent
-    if eff.data.get("who") == "opp":
-        p = game.opponent(p)       # "target opponent may put ... from their hand": their card, their choice
     cards = candidates(game, p, eff, item)
     entry = eff.data.get("entry", "")
     card = game.hook(p, "choose_hand_put")(game, p, cards, entry) if cards else None

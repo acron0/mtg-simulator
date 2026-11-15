@@ -193,7 +193,9 @@ _SUBS = [
     # "Return this card from your graveyard": the card itself is "~".
     (re.compile(r"\breturn this card from your graveyard\b", re.I), r"return ~ from your graveyard"),
     # "You may have ~ deal N damage to ...": always taken, so the damage is certain (Game.resolve_item).
-    (re.compile(r"you may have ~ deal (\d+) damage to (any target|target [a-z' ]+)", re.I), r"~ deals \1 damage to \2"),
+    # Only a lone recipient: "... and 1 damage to you" must not become a forced cost.
+    (re.compile(r"you may have ~ deal (\d+) damage to (any target|target [a-z' ]+?)(?=\.|$)", re.I),
+     r"~ deals \1 damage to \2"),
     (re.compile(r"then return a creature or planeswalker card with mana value X or less from your graveyard to "
                 r"the battlefield, where X is the amount of \{S\} spent to cast ~\.", re.I),
      lambda m: "REANIMATESNOW."),

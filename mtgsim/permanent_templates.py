@@ -316,7 +316,11 @@ def scope_player(game, scope):
             ctx = ctx.controller            # a cast trigger's context is the spell: its caster
         return ctx if isinstance(ctx, Player) else None
     src = item.source if isinstance(item, StackItem) else item
-    attacked = game.attack_targets.get(src) if isinstance(src, Permanent) else None
+    attacked = None
+    for obj in (ctx, src):      # the attacker: the trigger's event object ("Whenever a creature attacks"), else ~
+        attacked = game.attack_targets.get(obj) if isinstance(obj, Permanent) else None
+        if attacked is not None:
+            break
     if isinstance(attacked, Permanent):
         attacked = attacked.controller
     return attacked if isinstance(attacked, Player) else None

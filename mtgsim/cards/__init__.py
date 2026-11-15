@@ -249,3 +249,5 @@ _SUBS += _time_counters.SUBS
 from .. import capped_counters as _capped_counters
 _EFFECT_PATTERNS += _capped_counters.EFFECT_PATTERNS
 _SUBS += _capped_counters.SUBS
+from .. import cx_static_cost as _cx_static_cost  # one-shot spell-group discounts (#341)
+_EFFECT_PATTERNS += _cx_static_cost.EFFECT_PATTERNS

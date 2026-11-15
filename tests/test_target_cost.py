@@ -167,3 +167,46 @@ class Conditions(unittest.TestCase):
         self.assertEqual(self.cost("Wolfkin Outcast // Wedding Crasher"), base)
         self.g.enter_battlefield(self.a, card("Test Werewolf", "{1}{G}", "Creature — Human Werewolf", "", 2, 2))
         self.assertEqual(self.cost("Wolfkin Outcast // Wedding Crasher")["generic"], base["generic"] - 2)
+
+
+class TempDiscounts(unittest.TestCase):
+    """One-shot discounts for a group of spells (#341 slice 2)."""
+    def setUp(self):
+        self.a, self.b = Player("a", [BEAR] * 10, HeuristicAI()), Player("b", [BEAR] * 10, HeuristicAI())
+        self.g = Game(self.a, self.b, random.Random(0))
+        self.g.turn, self.g.step = 3, "main1"
+        for p in self.g.players:
+            p.library = [ISLAND] * 20
+
+    def run_spell(self, text):
+        c = card("Test Spell", "{1}", "Sorcery", text)
+        self.assertEqual(c.unsupported, [], text)
+        for e in c.spell_effects:
+            self.g.resolve(self.a, e, None)
+
+    def test_next_dragon_spell_once(self):
+        dragon = card("Test Dragon", "{3}{R}", "Creature — Dragon", "Flying", 4, 4)
+        self.run_spell("The next Dragon spell you cast costs {2} less to cast.")
+        self.assertEqual(self.g.cost_of(self.a, BEAR), BEAR.mana_cost)               # not a Dragon
+        self.assertEqual(self.g.cost_of(self.a, dragon)["generic"], 1)
+        self.g.turn += 1
+        self.assertEqual(self.g.cost_of(self.a, dragon)["generic"], 1)               # no "this turn": it waits
+        self.assertEqual(self.g.cost_of(self.b, dragon)["generic"], 3)               # only its caster's
+        for _ in range(3):
+            self.g.enter_battlefield(self.a, card("Mountain", types="Basic Land — Mountain", text="({T}: Add {R}.)"))
+        self.a.hand.append(dragon)
+        self.assertTrue(self.g.cast(self.a, dragon))
+        self.assertEqual(self.g.cost_of(self.a, dragon)["generic"], 3)               # spent
+
+    def test_this_turn_group_discount(self):
+        relic = card("Test Relic", "{3}", "Artifact", "")
+        self.run_spell("Artifact spells you cast this turn cost {1} less to cast.")
+        self.assertEqual(self.g.cost_of(self.a, relic)["generic"], 2)
+        self.assertEqual(self.g.cost_of(self.a, BEAR), BEAR.mana_cost)
+        self.g.turn += 1
+        self.assertEqual(self.g.cost_of(self.a, relic)["generic"], 3)
+
+    def test_refusals(self):
+        for s in ("The next Foo-thing spell an opponent casts costs {1} less to cast.",
+                  "The next Dragon spell you cast costs {X} less to cast."):
+            self.assertTrue(card("Test", "{1}", "Sorcery", s).unsupported, s)

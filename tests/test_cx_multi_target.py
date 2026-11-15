@@ -316,5 +316,75 @@ class Lists391(Base):
                 self.assertEqual(card_coverage(db.get(name)).status, "full")
 
 
+class UpToX(Base):
+    """"up to X target ..., where X is <a count>": a list of at most X objects, X counted as targets are chosen
+    (#312 slice E)."""
+    CRESCENDO = card("Test Crescendo", "{3}{R}", "Enchantment", "At the beginning of your upkeep, you may put a "
+                     "verse counter on ~.\n{R}, Sacrifice ~: Destroy up to X target lands, where X is the number of "
+                     "verse counters on ~.")
+
+    def test_parse(self):
+        effects = parsed("Destroy up to X target lands, where X is the number of verse counters on ~.")
+        self.assertEqual([(e.kind, e.data["max_xq"]) for e in effects], [("cx_multi", ("counters", "verse"))])
+        marauder = parsed("Up to X target creatures each gain intimidate and haste until end of turn, where X is "
+                          "your devotion to black.")
+        self.assertEqual(marauder[0].data["max_xq"], ("devotion", ("B",)))
+        for text in ("Up to X target creatures you control get +X/+X until end of turn, where X is the number of "
+                     "colors among permanents you control.",          # X means two things
+                     "Destroy up to X target lands.",                 # an X spell: X is chosen after targets
+                     "Destroy up to X target lands, where X is the number of times ~ was kicked.",
+                     "Return up to X target creatures to their owners' hands, where X is one plus the number of "
+                     "cards named ~ in all graveyards as you cast ~."):      # the count would drop "named ~"
+            with self.subTest(text):
+                self.assertIsNone(parsed(text))
+
+    def setup_crescendo(self, verses):
+        from mtgsim.engine import Permanent
+        self.assertEqual(self.CRESCENDO.unsupported, [])
+        cres = Permanent(self.CRESCENDO, self.a)
+        cres.counters["verse"] = verses
+        self.a.battlefield.append(cres)
+        self.a.battlefield.append(Permanent(card("Test Mountain", "", "Basic Land — Mountain", "({T}: Add {R}.)"),
+                                            self.a))
+        return cres
+
+    def test_at_most_x_targets_when_chosen(self):
+        cres = self.setup_crescendo(2)
+        lands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(3)]
+        effects = cres.card.activated[0].effects
+        self.assertTrue(self.game.valid_action_targets(self.a, effects, [tuple(lands[:2])], cres))
+        self.assertFalse(self.game.valid_action_targets(self.a, effects, [tuple(lands)], cres))
+        self.assertEqual(len(self.game.auto_targets(self.a, effects, cres)[0]), 2)
+
+    def test_sacrificed_source_still_resolves_for_the_chosen_number(self):
+        cres = self.setup_crescendo(2)
+        lands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(3)]
+        self.assertTrue(self.game.activate_ability(self.a, cres, 0))     # X read before ~ is sacrificed
+        self.game.settle()
+        self.assertNotIn(cres, self.a.battlefield)
+        self.assertEqual(sum(x in self.b.battlefield for x in lands), 1)
+
+    def test_they_cant_be_regenerated_reaches_each_destroy(self):
+        effects = parsed("Destroy up to X target nonblack creatures, where X is the number of verse counters on ~. "
+                         "They can't be regenerated.")
+        self.assertEqual(len(effects), 1)
+        self.assertTrue(all(e.data.get("no_regen") for e in effects[0].data["chain"]))
+        self.assertTrue(effects[0].data["probe"].data.get("no_regen"))
+
+    def test_no_counters_no_targets(self):
+        cres = self.setup_crescendo(0)
+        self.game.enter_battlefield(self.b, ISLAND)
+        self.assertEqual(self.game.auto_targets(self.a, cres.card.activated[0].effects, cres)[0], ())
+
+    @unittest.skipUnless(os.path.exists(DB), "card database not built")
+    def test_real_cards_are_full(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.coverage import card_coverage
+        db = CardDB(offline=True)
+        for name in ("Rumbling Crescendo", "Recantation", "Serra's Liturgy", "Mogis's Marauder", "Vile Requiem"):
+            with self.subTest(name):
+                self.assertEqual(card_coverage(db.get(name)).status, "full")
+
+
 if __name__ == "__main__":
     unittest.main()

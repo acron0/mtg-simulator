@@ -123,6 +123,9 @@ def legal_list(game, p, eff, tgt) -> bool:
         return True
     if not isinstance(tgt, tuple) or len({id(x) for x in tgt}) != len(tgt):
         return False
+    most = max_count(game, p, eff)
+    if most is not None and len(tgt) > most:
+        return False
     return all(game.legal_target(p, eff.data["probe"], x) for x in tgt)
 
 
@@ -138,7 +141,9 @@ def choose_list(game, me, eff) -> tuple:
     side = pick.controller if isinstance(pick, Permanent) else pick
     pool = [x for x in game.legal_targets(me, probe)
             if (x.controller if isinstance(x, Permanent) else x) is side]
-    return tuple(sorted(pool, key=lambda x: -perm_value(x) if isinstance(x, Permanent) else 0))
+    pool = sorted(pool, key=lambda x: -perm_value(x) if isinstance(x, Permanent) else 0)
+    most = max_count(game, me, eff)
+    return tuple(pool if most is None else pool[:most])
 
 
 def _lift_any(s: str, effects: list) -> bool:
@@ -157,6 +162,55 @@ def _lift_any(s: str, effects: list) -> bool:
     return True
 
 
+_UPTO_X = re.compile(r"\b(?i:up to) X ((?i:other |another ))?(?i:target)\b")
+_WHERE_X = re.compile(r",? where X is (.+?)(?: as you (?:cast ~|activate this ability))?$")
+
+
+def x_spec(phrase: str):
+    """The X-quantity spec for ", where X is <phrase>", or None."""
+    from .cards.clauses import _xq
+    from .cx_grammar import _count_spec
+    if re.search(r"\bnamed\b", phrase):
+        return None          # "cards named ~ in all graveyards": the count spec would drop the name
+    spec = _xq(phrase)
+    if spec is None and phrase.lower().startswith("the number of "):
+        spec = _count_spec(phrase[14:])
+    return spec
+
+
+def _lift_upto_x(s: str, effects: list) -> bool:
+    """"Destroy up to X target lands, where X is the number of verse counters on ~": a list target of at most X
+    objects, X counted when the targets are chosen (601.2c). X must mean nothing else in the sentence."""
+    body = s.strip().rstrip(".")
+    where = _WHERE_X.search(body)
+    if where is None:
+        return False
+    spec = x_spec(where[1])
+    body = body[:where.start()]
+    if spec is None or len(re.findall(r"\bX\b", body)) != 1:
+        return False
+    new: list = []
+    if not _lift_any(_UPTO_X.sub(lambda m: "any number of " + (m[1] or "") + "target", body), new):
+        return False
+    multi = new[0]
+    effects.append(dataclasses.replace(multi, data=dict(multi.data, max_xq=spec)))
+    return True
+
+
+def max_count(game, p, eff):
+    """The most objects an "up to X target" list may hold, or None for no limit. Counted while targets are chosen;
+    on resolution (a stack item is the targeting source) the number chosen stands."""
+    from .engine.state import Permanent, StackItem
+    from .cards.model import CardDef
+    spec = eff.data.get("max_xq")
+    src = game.target_source
+    if spec is None or isinstance(src, StackItem):
+        return None
+    item = StackItem(p, [], [], source=src if isinstance(src, Permanent) else None,
+                     card=src if isinstance(src, CardDef) else None, name="up to X")
+    return max(0, game.x_quantity(p, spec, item, None))
+
+
 def lift(s: str, effects: list) -> bool:
     """Parse s, a sentence with one counted target ("up to two target creatures"), into effects. True if it did."""
     from .engine.state import TARGETED
@@ -169,6 +223,8 @@ def lift(s: str, effects: list) -> bool:
         return False                          # "choose up to one target creature": a referent for later sentences
     if _ANY.search(outside):
         return not _COUNTED.search(outside) and _lift_any(s, effects)
+    if _UPTO_X.search(outside):
+        return _lift_upto_x(s, effects)
     found = list(_COUNTED.finditer(s))
     if len(found) != 1:
         return False
@@ -267,4 +323,19 @@ def chain_rider(s: str, effects: list) -> bool:
         return False
     multi = effects[-1]
     effects[-1] = dataclasses.replace(multi, data=dict(multi.data, chain=list(multi.data["chain"]) + new))
+    return True
+
+
+def no_regen_rider(s: str, effects: list) -> bool:
+    """"They can't be regenerated." after a list target whose chain destroys: each destroyed member can't be."""
+    if not effects or effects[-1].kind != "cx_multi" or not re.fullmatch(
+            r"(?:they|those creatures|the creatures) can't be regenerated\.?", s.strip(), re.I):
+        return False
+    multi = effects[-1]
+    chain = [dataclasses.replace(e, data=dict(e.data, no_regen=True)) if e.kind == "destroy" else e
+             for e in multi.data["chain"]]
+    if chain == multi.data["chain"]:
+        return False
+    probe = chain[0] if chain[0].kind == "destroy" else multi.data["probe"]
+    effects[-1] = dataclasses.replace(multi, data=dict(multi.data, chain=chain, probe=probe))
     return True

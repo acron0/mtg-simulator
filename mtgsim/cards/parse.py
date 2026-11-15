@@ -380,6 +380,9 @@ def _split_compound(s: str):
             continue
         if sep == r" and " and _OTHER_SUBJECT.match(pieces[0]) and _VERB_S.match(pieces[1]):
             continue    # "Target player loses 2 life and mills two cards": the second verb is that player's too
+        if re.match(r"(?:until end of turn, )?any number of (?:other )?target .+? each ", pieces[0], re.I) and \
+                not re.match(r"(?:you|target|each|that|its?|they)\b", pieces[1], re.I):
+            continue    # "Any number of target players each mill a card and lose 1 life": the chosen players' verbs (#391)
         if sep == r" and " and " unless " in pieces[0].lower():
             continue    # "... unless you sacrifice a land and pay 2 life": one compound cost, never two effects (#330)
         if re.search(r", where X is ", pieces[1], re.I) and re.search(r"\bX\b", pieces[0]):

@@ -102,12 +102,42 @@ class PermanentTemplates(unittest.TestCase):
                          {'types_any': ['creature', 'planeswalker'], 'traits': ['legendary']})
 
     def test_modifier_on_one_alternative_only_stays_unread(self):
-        for text in ('artifact or nontoken creature',
-                     'nontoken artifact or legendary creature',
-                     'elf creature or artifact',
-                     'nontoken artifact creature or vehicle'):
+        # intersections inside an alternative are not read (follow-up #506); see
+        # test_per_alternative_modifiers_read_as_alts for the alts cases now supported
+        for text in ('nontoken artifact creature or vehicle',):
             with self.subTest(text=text):
                 self.assertIsNone(selector(text))
+
+    def test_per_alternative_modifiers_read_as_alts(self):
+        self.assertEqual(selector('artifact or nontoken creature'),
+                         {'alts': [('artifact',), ('nontoken', 'creature')]})
+        self.assertEqual(selector('red artifact or blue creature'),
+                         {'alts': [('red', 'artifact'), ('blue', 'creature')]})
+        self.assertEqual(selector('nontoken artifact or legendary creature'),
+                         {'alts': [('nontoken', 'artifact'), ('legendary', 'creature')]})
+        self.assertEqual(selector('elf creature or artifact'),
+                         {'alts': [('elf', 'creature'), ('artifact',)]})
+
+    def test_union_alternatives_need_exactly_one_type_each(self):
+        # subtype-only alternatives ("artifact or elf") and intersections inside an
+        # alternative ("nontoken artifact creature or vehicle") stay unread for now
+        for text in ('artifact or elf', 'nontoken artifact creature or vehicle', 'artifact or'):
+            with self.subTest(text=text):
+                self.assertIsNone(selector(text))
+
+    def test_alts_selector_targets_each_alternative_as_written(self):
+        artifact = self.put(card('Tool', '{1}', 'Artifact', ''))
+        token_artifact = self.put(make_token('Treasure', 0, 0, kind='treasure'))
+        bear = self.put()
+        token_creature = self.put(make_token('Soldier', 2, 2))
+        land = self.put(ISLAND)
+        eff = self.parse('Exile target artifact or nontoken creature.')[0]
+        legal = self.g.legal_targets(self.a, eff)
+        self.assertIn(artifact, legal)             # the bare "artifact" alternative admits tokens
+        self.assertIn(token_artifact, legal)
+        self.assertIn(bear, legal)                 # the "nontoken creature" alternative
+        self.assertNotIn(token_creature, legal)    # a token is not a nontoken creature
+        self.assertNotIn(land, legal)
 
     def test_comma_joined_modifiers_before_a_type(self):
         self.assertEqual(selector('non-Saga, nonland permanent'),

@@ -221,6 +221,71 @@ def _singular(word, plural):
     return _IRREGULAR.get(low, word[:-1] if low.endswith('s') and not low.endswith('ss') else word)
 
 
+def _words_spec(words, plural):
+    """Classify plain selector words into a spec fragment, or None when a word is unknown.
+    A trailing comma joins modifiers ("non-Saga, nonland permanent"); a comma-attached type word
+    is refused, since a comma-joined type list is not an "or" union."""
+    spec = {}
+    types = []
+    for word in words:
+        low = word.lower()
+        if low.endswith(','):
+            low = _singular(low[:-1], plural).lower()
+            if low in _TYPES:
+                return None
+        kind = _classify(low)
+        if kind is None:
+            return None
+        if kind[0] == 'type':
+            types.append(kind[1])
+        else:
+            _record(spec, *kind)
+    if not types and not spec.get('subtypes'):
+        return None
+    if types:
+        spec['types_all'] = types
+    else:
+        spec['types_any'] = ['permanent']
+    return spec
+
+
+def _union_spec(alts, plural, *, intersection):
+    """Read a type union ("artifact or creature"). When every alternative is one bare type plus
+    modifiers shared with the first alternative, the shared modifier distributes over the union
+    and the phrase reads flat ("nontoken artifact or creature" = nontoken (artifact or creature)).
+    Otherwise each alternative is read exactly as written, as an "alts" list of word tuples — words
+    ANDed within an alternative, ORed across them (the cx_events alts shape): "artifact or
+    nontoken creature" = artifact, or nontoken creature."""
+    parsed = []
+    for alt in alts:
+        parts = [_singular(p[:-1], plural) if p.endswith(',') else _singular(p, plural)
+                 for p in alt.split()]
+        kinds = [_classify(p) for p in parts]
+        if any(kind is None for kind in kinds) or not any(b in ('type', 'subtype') for b, _ in kinds):
+            return None
+        parsed.append((parts, kinds))
+    types, shared, distributes = [], None, True
+    for parts, kinds in parsed:
+        alt_types = [value for bucket, value in kinds if bucket == 'type']
+        mods = [(bucket, value) for bucket, value in kinds if bucket != 'type']
+        if len(alt_types) != 1 or any(bucket == 'subtype' for bucket, _ in mods) or \
+                (shared is not None and any(mod not in shared for mod in mods)):
+            distributes = False
+            break
+        if shared is None:
+            shared = mods
+        types.append(alt_types[0])
+    if distributes:
+        spec = {'types_any': types}
+        for bucket, value in shared:
+            _record(spec, bucket, value)
+        return spec
+    if not intersection and any(sum(1 for bucket, _ in kinds if bucket == 'type') != 1
+                                for _, kinds in parsed):
+        return None     # one type per alternative; intersections inside an alternative are not read yet
+    return {'alts': [tuple(parts) for parts, _ in parsed]}
+
+
 def selector(text, *, plural=False):
     """Parse a restricted battlefield noun phrase, preserving every constraint."""
     text = text.strip()
@@ -291,49 +356,15 @@ def selector(text, *, plural=False):
         if all(alt in _TYPES for alt in alts):
             result['types_any'] = alts
         else:
-            # A leading modifier distributes over the whole union: "nontoken artifact or creature"
-            # means "nontoken (artifact or creature)". A modifier on a later alternative only
-            # ("artifact or nontoken creature") has no representation, so the phrase stays unread.
-            types, shared = [], None
-            for alt in alts:
-                parts = [_singular(p[:-1], plural) if p.endswith(',') else _singular(p, plural)
-                         for p in alt.split()]
-                kinds = [_classify(p.lower()) for p in parts]
-                if any(kind is None for kind in kinds):
-                    return None
-                alt_types = [value for bucket, value in kinds if bucket == 'type']
-                mods = [(bucket, value) for bucket, value in kinds if bucket != 'type']
-                if len(alt_types) != 1 or any(bucket == 'subtype' for bucket, _ in mods):
-                    return None     # a positive subtype can't distribute over a type union
-                types.append(alt_types[0])
-                if shared is None:
-                    shared = mods
-                elif any(mod not in shared for mod in mods):
-                    return None
-            result['types_any'] = types
-            for bucket, value in shared:
-                _record(result, bucket, value)
-    else:
-        types = []
-        for word in words:
-            low = word.lower()
-            if low.endswith(','):        # "non-Saga, nonland permanent": commas join modifiers
-                low = _singular(low[:-1], plural).lower()
-                if low in _TYPES:
-                    return None           # a comma-joined type list is not an "or" union
-            kind = _classify(low)
-            if kind is None:
+            union = _union_spec(alts, plural, intersection=False)
+            if union is None:
                 return None
-            if kind[0] == 'type':
-                types.append(kind[1])
-            else:
-                _record(result, *kind)
-        if not types and not result.get('subtypes'):
+            result.update(union)
+    else:
+        parsed = _words_spec(words, plural)
+        if parsed is None:
             return None
-        if types:
-            result['types_all'] = types
-        else:
-            result['types_any'] = ['permanent']
+        result.update(parsed)
     return result
 
 
@@ -345,6 +376,12 @@ def _named(permanent, name, source) -> bool:
         if name is None:
             return False
     return permanent.card.name == name or getattr(permanent.card, "front_name", None) == name
+
+
+def _alt_fits(game, permanent, alt, controller, source) -> bool:
+    """One alternative of a union ("alts") selector, matched like a flat spec of its own words."""
+    sub = _words_spec(alt, False)
+    return sub is not None and matches(game, permanent, sub, controller, source)
 
 
 def matches(game, permanent, spec, controller, source=None):
@@ -362,6 +399,8 @@ def matches(game, permanent, spec, controller, source=None):
     if spec.get('controller') and (permanent.controller is controller) != (spec['controller'] == 'mine'):
         return False
     if spec.get('owner') and (permanent.owner is controller) != (spec['owner'] == 'mine'):
+        return False
+    if 'alts' in spec and not any(_alt_fits(game, permanent, alt, controller, source) for alt in spec['alts']):
         return False
     def has_type(kind):
         return permanent.is_creature if kind == 'creature' else True if kind == 'permanent' else kind.title() in permanent.card.types

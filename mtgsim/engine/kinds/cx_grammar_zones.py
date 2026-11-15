@@ -50,7 +50,8 @@ def card_move(game, p, eff, target, item=None, **_):
         attacking = (eff.data.get("attacking", False) and controller is game.active and
                      game.step in ("declare_attackers", "declare_blockers", "first_strike_damage", "combat_damage",
                                    "end_combat"))
-        game.enter_battlefield(controller, target, tapped=bool(eff.data.get("tapped")), tapped_attacking=attacking)
+        game.enter_battlefield(controller, target, tapped=bool(eff.data.get("tapped")), tapped_attacking=attacking,
+                               counters=dict(eff.data["counters"]) if eff.data.get("counters") else None)
     elif to in ("library_top", "library_bottom"):
         owner.graveyard.remove(target)
         if to == "library_top":

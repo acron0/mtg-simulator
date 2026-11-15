@@ -16,7 +16,7 @@ from .patterns import _EFFECT_PATTERNS
 # "You may <effect>" is always taken, so only for effects that cost the player nothing.
 _MAY_DECLINED = {"sacrifice", "sacrifice_self", "discard", "discard_choice", "lose_life", "mill", "pay_gate",
                  "damage", "drain", "destroy", "exile", "exile_permanent", "wrath", "bounce"}
-_MAY_COUNTERS = {"cx_remove_counters", "cx_move_counters", "cx_exchange_mark", "cx_exchange"}   # the AI may decline
+_MAY_COUNTERS = {"cx_remove_counters", "cx_move_counters", "cx_exchange_mark", "cx_exchange", "cx_attach_mark", "cx_attach"}   # the AI may decline
 
 
 def hostile_may(text, new):
@@ -698,7 +698,7 @@ def _parse_face(data: dict) -> CardDef:
         extra.setdefault("advanced_rules", {})["no_mana_cost"] = True
     return CardDef(
         name=name, mana_cost=cost, cmc=int(data.get("cmc", 0) or 0), types=types,
-        subtypes=frozenset(type_line.split("—")[1].split()) if "—" in type_line else frozenset(),
+        subtypes=(frozenset(type_line.split("—")[1].split()) if "—" in type_line else frozenset()) | frozenset(extra.pop("_cda_subtypes", ())),
         power=stat(data.get("power")), toughness=stat(data.get("toughness")),
         keywords=frozenset(keywords), produces=frozenset(produces), enters_tapped=enters_tapped,
         spell_effects=spell, etb_effects=etb, unsupported=unsupported, approximations=approximations, oracle=oracle,

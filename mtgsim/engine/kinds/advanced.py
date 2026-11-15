@@ -44,8 +44,11 @@ def quantity_stats(game, p, target, item, eff, **_):
 
 
 @kind('return_tribal_grave', 'grave_library_top')
-def grave_move(game, p, target, eff, **_):
+def grave_move(game, p, target, eff, item=None, **_):
+    from ...referent import remember_card
+    remember_card(item, None)
     if target is not None and target in p.graveyard:
+        remember_card(item, target)          # "that card's power" (Dead Reckoning, #313)
         game.move_card(target, p.graveyard, p.library if eff.kind == 'grave_library_top' else p.hand)
 
 

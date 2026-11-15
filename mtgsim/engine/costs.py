@@ -199,6 +199,9 @@ class CostsMixin:
         p.expend = (self.turn, old + len(payment))
         for n in range(old + 1, old + len(payment) + 1):
             self.fire(p, "expend", subject=n)
+        for s in payment:       # "Whenever a player taps a land for mana" (cx_trig_heads)
+            if isinstance(s, Permanent) and s.tapped and s in s.controller.battlefield:
+                self.fire(s.controller, "tapped_for_mana", s)
         return payment
 
     def x_quantity(self, p: Player, spec: tuple, item, prev) -> int:
@@ -292,6 +295,17 @@ class CostsMixin:
         if kind == "party":
             # "where X is the number of creatures in your party" (Acquisitions Expert)
             return self.party_size(p)
+        if kind == "card":
+            # "equal to that card's mana value" (card_referent, #313): the card the previous effect moved,
+            # frozen on the stack item when it moved
+            from ..referent import card_stat
+            return max(0, int(card_stat(item, spec[1]) or 0))
+        if kind == "discarded":
+            # "the discarded card's mana value": the card discarded to pay the spell's or ability's cost
+            stats = getattr(item, "discarded_stats", None)
+            if stats is None and src is not None:
+                stats = getattr(src, "last_discarded", None)
+            return _stat_of(stats, spec[1])
         if kind == "exiled_gy":
             # "Damage equal to the exiled card's power" (Molten-Tail Masticore, Corpse Lunge):
             # the card exiled from the graveyard as a cost — item.exiled_gy_stats (spell cost,
@@ -797,7 +811,8 @@ class CostsMixin:
     def impulse_cards(self, p: Player) -> list:
         """Exiled cards p may still play (drops the expired ones)."""
         p.impulse = [(c, t) for c, t in p.impulse if t >= self.turn and c in p.exile]
-        return [c for c, _ in p.impulse]
+        from ..cx_exile_play import foreign_lands      # lands p may play from another player's exile (#316)
+        return [c for c, _ in p.impulse] + foreign_lands(p)
 
     def _origin(self, card: CardDef):
         return getattr(card, "origin", None) or (card, "", None)
@@ -814,7 +829,8 @@ class CostsMixin:
                 "retrace": p.graveyard, "beam": p.graveyard,
                 "escape": p.graveyard, "impulse": p.exile, "suspended": p.exile, "rebound": p.exile,
                 "cascade": p.exile, "cascade_adventure": p.exile,
-                "rebound_adventure": p.exile, "discover": p.exile, "siege": p.exile, "cx_top": p.library}.get(kind, p.hand)
+                "rebound_adventure": p.exile, "discover": p.exile, "siege": p.exile, "cx_top": p.library,
+                "cx_top_life": p.library}.get(kind, p.hand)
 
     def _available(self, p: Player, card: CardDef) -> bool:
         base, kind, _ = self._origin(card)
@@ -826,9 +842,9 @@ class CostsMixin:
             return False
         if kind == "prepared":
             return any(x.front is base and x.prepared for x in p.battlefield)
-        if kind == "cx_top":
+        if kind in ("cx_top", "cx_top_life"):
             from .. import cx_top
-            return cx_top.spell_ok(p, base)
+            return cx_top.spell_ok(p, base, life=kind == "cx_top_life")
         return base in self._zone(p, kind)
 
     def can_cast_now(self, p: Player, card: CardDef, *, during_resolution=False) -> bool:
@@ -861,9 +877,9 @@ class CostsMixin:
         from ..residual_templates import life_locked
         if life_locked(p) and (card.extra_life_cost or alt is not None and alt.life):
             return False
-        if alt is not None and alt.life and p.life <= alt.life:
+        if alt is not None and alt.life and p.life < alt.life:      # CR 119.4 (#467)
             return False
-        if card.extra_life_cost and p.life <= card.extra_life_cost:
+        if card.extra_life_cost and p.life < card.extra_life_cost:
             return False
         if card.extra_discard and not card.discard_or_pay and self.spare_cards(p, card) < card.extra_discard:
             return False

@@ -255,6 +255,11 @@ def selector(text, *, plural=False):
         if m:
             result['counter'] = [m[2].lower(), m[1].lower() == 'with']
             text = text[:m.start()]
+        elif re.search(r' with (modular|fading|level up)$', text, re.I):
+            # abilities kept as card fields, not keywords: "each creature you control with modular" (#327)
+            m = re.search(r' with (modular|fading|level up)$', text, re.I)
+            result['ability'] = m[1].lower()
+            text = text[:m.start()]
         else:
             m = re.search(r' (with|without) ([a-z ]+)$', text, re.I)
             if m:
@@ -266,16 +271,28 @@ def selector(text, *, plural=False):
     words = text.split()
     if plural:
         irregular = {'elves': 'Elf', 'dwarves': 'Dwarf', 'wolves': 'Wolf'}
-        words = [irregular.get(w.lower(), w[:-1] if w.lower().endswith('s') and
-                 not w.lower().endswith('ss') else w) for w in words]
+
+        def one(w):         # "Frogs," in a list keeps its comma
+            comma = ',' if w.endswith(',') else ''
+            w = w.rstrip(',')
+            return irregular.get(w.lower(), w[:-1] if w.lower().endswith('s') and not w.lower().endswith('ss')
+                                 else w) + comma
+        words = [one(w) for w in words]
     if not words:
         return None
     # Type unions are explicit. Prefix modifiers are intersections.
-    if 'or' in [w.lower() for w in words]:
-        alts = re.split(r',? or |, ', ' '.join(words).lower())
-        if not all(alt in _TYPES for alt in alts):
+    lows = [w.lower() for w in words]
+    if 'or' in lows or 'and' in lows:
+        # "artifact or creature"; a list of subtypes is a union too, with "or" or (for "each ...") "and":
+        # "target Bird, Cat, Dog, Goat, Ox, or Snake", "each Pest, Bat, Insect, Snake, and Spider you control" (#327)
+        alts = re.split(r',? or |,? and |, ', ' '.join(words).lower())
+        if 'or' in lows and all(alt in _TYPES for alt in alts):
+            result['types_any'] = alts
+        elif len(alts) > 1 and all(alt in _SUBTYPE_TYPES for alt in alts):
+            result['subtypes_any'] = alts
+            result['types_any'] = ['permanent']
+        else:
             return None
-        result['types_any'] = alts
     else:
         types = []
         for word in words:
@@ -373,6 +390,9 @@ def matches(game, permanent, spec, controller, source=None):
         return False
     if any(s in subs or changeling and s in _CREATURE_SUBTYPES for s in spec.get('not_subtypes', [])):
         return False
+    if 'subtypes_any' in spec and not any(s in subs or changeling and s in _CREATURE_SUBTYPES
+                                          for s in spec['subtypes_any']):
+        return False
     if not all(c in permanent.card.colors for c in spec.get('colors', [])):
         return False
     for trait in spec.get('traits', []):
@@ -403,6 +423,9 @@ def matches(game, permanent, spec, controller, source=None):
         if permanent.has(name) != present:
             return False
     if spec.get('entered_turn') and getattr(permanent, 'entered_turn', -1) != game.turn:
+        return False
+    if 'ability' in spec and not (permanent.card.level_blocks if spec['ability'] == 'level up'
+                                  else getattr(permanent.card, spec['ability'], 0)):
         return False
     if spec.get('tough_gt_power') and not permanent.toughness > permanent.power:
         return False

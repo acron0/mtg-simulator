@@ -473,6 +473,15 @@ _OBJ_VERBS = [
     (r"attacks? (?:one of your opponents|an opponent)(?: or a planeswalker an opponent controls)?", ("attacks",),
      "atk_opp"),
     (r"attacks?", ("attacks",), ""),
+    (r"attacks? alone", ("attacks",), "alone"),
+    (r"attacks? and (?:isn't|aren't) blocked", ("unblocked",), ""),
+    (r"attacks? enchanted player", ("attacks",), "atk_cursed"),
+    (r"deals? combat damage to enchanted player", ("combat_damage_player",), "dmg_cursed"),
+    (r"becomes? the target of a spell you control", ("targeted",), "tg_spell_mine"),
+    (r"becomes? the target of a spell", ("targeted",), "tg_spell"),
+    (r"deals? (?:\d+) or more damage to (?:a player|an opponent)", ("damages_player",), "dmg_n"),
+    (r"deals? damage to (?:an?|one or more) (?!(?:player|opponent|creature|player or planeswalker)$)[\w ,'-]+",
+     ("deals_damage",), "dmgd"),
     (r"attacks? or blocks?", ("attacks", "blocks"), ""),
     (r"blocks? or becomes? blocked", ("blocks", "becomes_blocked"), ""),
     (r"blocks?", ("blocks",), ""),
@@ -570,6 +579,8 @@ def _compile_base(head: str):
             if not vm:
                 continue
             spec = {"player": who, "kind": kind}
+            if not cx_trig_heads.subject_takes(who, kind):
+                return None
             if kind in ("cast", "cast_copy", "copy"):
                 spell = _spell_spec(vm[1])
                 if spell is None:
@@ -592,6 +603,9 @@ def _compile_base(head: str):
                 spec["alts"] = alts
             return _PLAYER_RAW[kind], spec
         return None
+    counters = cx_trig_heads.counter_head(body)
+    if counters is not None:
+        return counters
     om = re.fullmatch(rf"(.+?) ((?:{_VERB_RE})(?: or (?:{_VERB_RE}))*)", body)
     if not om:
         return None
@@ -611,6 +625,10 @@ def _compile_base(head: str):
                     best = (vm.end(), raw, flag)
         if best is None:
             return None
+        if best[2] in ("dmgd", "dmg_n"):
+            got = cx_trig_heads.verb_arg(best[2], rest[:best[0]], subject)
+            if got is None:
+                return None
         if best[2] == "by":
             by = re.search(r" by (?:an?|one or more) ([\w/ -]+?)(?: creatures?)?$", rest[:best[0]])
             alts = _desc_alts(by[1], plural=True) if by else None
@@ -818,6 +836,10 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
             return False
         if spec["player"] == "enchanted" and (actor is None or getattr(perm, "curse_target", None) is not actor):
             return False        # a Curse: the player it enchants
+        if not cx_trig_heads.player_ok(game, spec, actor, me):
+            return False
+        if spec["kind"] == "src_dmg_me":
+            return game.event_dmg_by        # "that player": the damaging source's controller
         kind = spec["kind"]
         if kind in ("cast", "cast_copy", "copy"):
             item = next((s for s in reversed(game.stack) if s.is_spell and s.card is subject), None) \
@@ -879,6 +901,8 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
             return False
     if flag in ("gy_you", "gy_opp") and (getattr(obj, "owner", None) is me) != (flag == "gy_you"):
         return False        # whose graveyard: the owner's
+    if flag in cx_trig_heads.FLAGS and not cx_trig_heads.flag_ok(game, flag, spec, perm, obj, context):
+        return False
     if flag == "dmg_me" and context is not me:
         return False
     if flag == "dmg_creature" and not (isinstance(context, Permanent) and context.is_creature):
@@ -892,3 +916,4 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
 
 from . import cx_trig_events  # noqa: E402  (extends the player-verb table above)
 from . import cx_trig_cast  # noqa: E402  (cast-head qualifiers)
+from . import cx_trig_heads  # noqa: E402  (attack / damage / targeting / counter heads)

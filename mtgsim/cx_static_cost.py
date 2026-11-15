@@ -480,11 +480,11 @@ def target_cost(game, p, card, effects, targets):
 # ---------------------------------------------------------------------------
 
 def _temp_effect(m, once: bool):
-    from .cards.model import Effect
+    from .cards.model import NO_MATCH, Effect     # NO_MATCH: refuse (None would drop the sentence)
     group = _group(m["g"].strip() + (" spell you cast" if once else " spells you cast"))
     amount = _amount(m["amt"])
     if group is None or group[0] != "you" or group[2] is not None or group[3] is not None or "X" in amount:
-        return None
+        return NO_MATCH
     return Effect("cx_temp_cost", data={"specs": group[1], "amount": amount, "once": once,
                                        "this_turn": bool(m["turn"]) or not once})
 

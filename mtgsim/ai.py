@@ -820,7 +820,7 @@ class HeuristicAI:
                     + self._static_value(game, me, card) - self._sac_cost(game, me, card), None)
         instant = card.instant_speed
         if any('anchor' in e.data or e.kind in ('allocated_counter', 'return_tribal_grave', 'grave_library_top',
-                'control_permanent', 'cx_exchange', 'populate', 'advanced_quantity_stats', 'selected_mass_move', 'filtered_grave_return', 'graveyard_exile_all', 'graveyard_exile_choice') for e in card.spell_effects):
+                'control_permanent', 'cx_exchange', 'cx_attach', 'populate', 'advanced_quantity_stats', 'selected_mass_move', 'filtered_grave_return', 'graveyard_exile_all', 'graveyard_exile_choice') for e in card.spell_effects):
             from .engine.policy import _mode_value
             with game.targeting(card):
                 value = _mode_value(game, me, card.spell_effects)
@@ -1091,6 +1091,10 @@ class HeuristicAI:
 
     def _sac_cost(self, game: Game, me: Player, card: CardDef) -> float:
         """What the additional cost "sacrifice an artifact or creature" gives up (cheapest candidate)."""
+        if getattr(card, "advanced_rules", None) and hasattr(game, "mana_sources"):
+            from .cx_spell_costs import ai_cost, alternatives      # "As an additional cost to cast ~, ..." (#342)
+            if alternatives(card):
+                return ai_cost(game, me, card)
         if not getattr(card, "extra_sacrifice", "") or not hasattr(game, "extra_sac_candidates"):
             return 0.0
         cands = game.extra_sac_candidates(me, card)
@@ -1291,6 +1295,10 @@ class HeuristicAI:
             with game.targeting(card if card is not None else game.target_source):
                 return engine.default_choose_target(game, me, eff)
         opp = game.opponent(me)
+        if eff.kind == "die_roll" and card is not None:
+            tgt = copies.group_model(game, me, eff, card)     # "choose target creature" a group copy reads
+            if tgt is not None:
+                return tgt
         if eff.kind == "damage":
             if eff.target in ("any", "player", "creature", "creature_pw"):
                 tgt, _ = self.best_damage_target(game, me, eff, card or CardDef("", {}, 0, frozenset()), False)

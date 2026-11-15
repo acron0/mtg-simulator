@@ -81,6 +81,9 @@ def damage_amount(game: Game, eff: Effect, source=None) -> int:
 
 def default_choose_target(game: Game, me: Player, eff: Effect):
     """A reasonable target for eff, respecting hexproof and targeting restrictions."""
+    if eff.target == "multi" and eff.data["probe"].kind == "cx_attach" and eff.data["probe"].data.get("host") != "target":
+        from ..cx_attach import choose_many
+        return choose_many(game, me, eff)
     if eff.target == "multi":
         from ..cx_multi_target import choose_list
         return choose_list(game, me, eff)
@@ -91,6 +94,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     k = eff.kind
     if k == "copy_spell":
         return max(legal, key=lambda i: i.card.cmc, default=None)
+    if k == "die_roll" and copies.group_model(game, me, eff, None) is not None:     # a group copy's model
+        return copies.group_model(game, me, eff, None)
     if k == "damage" and eff.data.get("spell_controller"):
         return max((i for i in legal if i.controller is opp), key=lambda i: i.card.cmc, default=None)
     if eff.target == "player" and k in ("draw", "gain_life"):
@@ -115,11 +120,17 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         if killable:
             return max(killable, key=perm_value)
         return opp if eff.target in ("any", "player") else None
+    if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
+        from ..cx_grammar_bite import choose as bite_choose
+        return bite_choose(game, me, eff)
     if k in removal.KINDS:
         return removal.choose(game, me, eff)
     if k in ("cx_exchange_mark", "cx_exchange"):
         from ..cx_exchange import choose
         return choose(game, me, eff)
+    if k in ("cx_attach_mark", "cx_attach"):
+        from ..cx_attach import choose as choose_attach
+        return choose_attach(game, me, eff)
     if k == "time_counters":
         from ..time_counters import choose
         return choose(game, me, eff)
@@ -230,6 +241,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     if side == "auto":                  # neutral effects (a colour change) take the side of what follows them
         from ..cx_grammar import auto_side
         side = auto_side(game, eff)
+    elif side == "type":                # a bare creature-type change: harmful if the type is restricted
+        from ..cx_grammar_animate import type_side
+        side = type_side(game, eff)
     if eff.target == "graveyard_card" and side in ("mine", "theirs", "any"):   # cx_grammar_zones: whose graveyard
         pool = [c for c in legal if side == "any" or any(c is x for x in (me if side == "mine" else opp).graveyard)]
         return max(pool, key=lambda c: c.cmc, default=None)
@@ -308,10 +322,11 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                 tgt = None
             chosen.append(tgt)
             k = e.kind
-            if k in ("cx_exchange_mark", "cx_exchange"):
+            if k in ("cx_exchange_mark", "cx_exchange", "cx_attach_mark", "cx_attach"):
                 from ..cx_exchange import mode_value
-                v = mode_value(game, me, e, tgt, chosen)
-                if v < 0 and k == "cx_exchange" and not e.data.get("optional"):
+                from ..cx_attach import mode_value as attach_value
+                v = (mode_value if k.startswith("cx_exchange") else attach_value)(game, me, e, tgt, chosen)
+                if v < 0 and k in ("cx_exchange", "cx_attach") and not e.data.get("optional"):
                     return -1
                 total += max(v, 0.0)
                 continue

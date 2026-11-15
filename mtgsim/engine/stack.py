@@ -263,13 +263,15 @@ class StackMixin:
                 ref_item = targeter if targeter is not None else (
                     getattr(self, "casting_item", None) if event == "any_cast" else None)
                 ctx = ref_item if ref_item is not None and context is None else context
+                if event == "ally_combat_damage" and any(e.target == "that_player" for e in effects):
+                    ctx = subject       # "that player": the damaged player, not the creature (#458)
                 self.queue_trigger(perm.controller, effects, perm, perm.card.name, ctx,
                                    targets=self._that_spell_targets(ref_item, effects), modes=trig.modes,
                                    intervening_if=trig.intervening_if)
         if source is not None:      # Role tokens, Auras and Equipment give their creature triggers
             # "its controller" in "Whenever enchanted creature ..., its controller ..." is the creature's (#361)
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
-                                                for e in effects) else context
+                                                or e.data.get("ref_subject") for e in effects) else context
             for equipment in source.equipment:
                 for trig in equipment.card.host_triggers:
                     if trig.event == event:

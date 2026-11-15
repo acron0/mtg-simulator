@@ -245,7 +245,6 @@ class Refusals(unittest.TestCase):
             "Return two creature card from your graveyard to your hand.",
             "Return a creature cards from your graveyard to your hand.",
             "Return from your graveyard to the battlefield any number of target creature cards that each have a different mana value X or less.",
-            "For each color, return up to one target card of that color from your graveyard to your hand.",
             "Return up to one creature card from your graveyard to your hand until end of turn.",
         ):
             with self.subTest(text=text):
@@ -260,7 +259,7 @@ class Refusals(unittest.TestCase):
         for name in ("Alesha, Who Laughs at Fate", "Alesha, Who Smiles at Death", "Another Chance", "Bond of Insight", "Unseal the Necropolis"):
             row = card_coverage(db.get(name))
             self.assertEqual(row.status, "full", (name, row.ignored))
-        for name in ("Aether Rift", "Agadeem's Awakening", "All Suns' Dawn"):
+        for name in ("Aether Rift", "Agadeem's Awakening"):     # All Suns' Dawn: test_cx_grammar_zones_returns
             self.assertTrue(card_coverage(db.get(name)).ignored, name)
 
 

@@ -935,7 +935,7 @@ def _parse_trigger_line(line: str):
         # the plain "casts a spell, <rider>" one carries the rider there and must keep flt clean
         if events == ("any_cast",) and m.lastindex == 2 and str(m[1]).isdigit():
             flt = f"cmc<={m[1]}"
-        if "while saddled" in pat or events[-1] == "becomes_tapped":
+        if "while saddled" in pat or events[-1] == "becomes_tapped" and not re.search(r"\btarget\b", rest):   # "it" = a target
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("expend",) or events == ("class_level",):
             flt = m[1]

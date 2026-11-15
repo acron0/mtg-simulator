@@ -269,7 +269,7 @@ def selector(text, *, plural=False):
                 types.append(low)
             elif low in ('tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
                          'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored',
-                         'suspected'):
+                         'suspected', 'snow', 'nonsnow'):
                 result.setdefault('traits', []).append(low)
             elif low in _COLORS:
                 result.setdefault('colors', []).append(_COLORS[low])
@@ -344,6 +344,8 @@ def matches(game, permanent, spec, controller, source=None):
         if trait == 'blocking' and not any(permanent in group for group in game.blocks.values()):
             return False
         if trait == 'suspected' and not permanent.has('suspected'):
+            return False
+        if trait in ('snow', 'nonsnow') and bool(permanent.card.snow) != (trait == 'snow'):
             return False
     if 'counter' in spec:
         name, positive = spec['counter']

@@ -50,7 +50,8 @@ def card_move(game, p, eff, target, item=None, **_):
         attacking = (eff.data.get("attacking", False) and controller is game.active and
                      game.step in ("declare_attackers", "declare_blockers", "first_strike_damage", "combat_damage",
                                    "end_combat"))
-        game.enter_battlefield(controller, target, tapped=bool(eff.data.get("tapped")), tapped_attacking=attacking)
+        game.enter_battlefield(controller, target, tapped=bool(eff.data.get("tapped")), tapped_attacking=attacking,
+                               counters=dict(eff.data["counters"]) if eff.data.get("counters") else None)
     elif to in ("library_top", "library_bottom"):
         owner.graveyard.remove(target)
         if to == "library_top":
@@ -71,9 +72,14 @@ def card_choose(game, p, eff, target, item=None, **_):
     if not isinstance(target, Player):
         return
     source = item.source if item is not None else None
-    pool = [c for c in target.graveyard if card_fits(c, eff.data["cx_card"], source)]
+    event = getattr(item, "context", None)
+    pool = [c for c in target.graveyard
+            if card_fits(c, eff.data["cx_card"], source, event if isinstance(event, Permanent) else None)]
     chosen = []
-    for card in game.hook(target, "choose_dig")(game, target, list(pool), eff.amount):
+    if eff.data.get("random"):          # "at random": nobody chooses
+        pool = game.rng.sample(pool, min(eff.amount, len(pool)))
+    for card in ([] if eff.data.get("random") else game.hook(target, "choose_dig")(game, target, list(pool),
+                                                                                    eff.amount)):
         if any(card is c for c in pool) and not any(card is c for c in chosen):
             chosen.append(card)
     if not eff.data["up_to"]:

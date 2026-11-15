@@ -175,6 +175,14 @@ _WITH = [
     (r" with (" + "|".join(_KEYWORDS) + ")", lambda m: ("kw", m[1])),
     (r" without (" + "|".join(_KEYWORDS) + ")", lambda m: ("nokw", m[1])),
     (r" that's enchanted or equipped", lambda m: ("modded",)),
+    (r" with power or toughness (\d+) or less", lambda m: ("pt_or<=", int(m[1]))),
+    (r" with mana value (\d+|one|two|three)", lambda m: ("mv=", _NUM.get(m[1]) or int(m[1]))),
+    (r" owned by another player| an opponent owns", lambda m: ("own_opp",)),
+]
+# Only in trigger heads: the source permanent's choice (effects and statics read noun phrases through a viewer)
+_HEAD_WITH = [
+    (r" of the chosen type", lambda m: ("chosen_type",)),
+    (r" of the chosen colou?r", lambda m: ("chosen_color",)),
 ]
 
 
@@ -204,11 +212,27 @@ def _with_ok(game, perm, w, source) -> bool:
         return not perm.has(w[1])
     if k == "modded":
         return bool(perm.auras or perm.equipment)
+    if k == "chosen_type":
+        typ = getattr(source, "chosen_type", "")
+        return bool(typ) and (typ in perm.card.subtypes or perm.card.changeling)
+    if k == "chosen_color":
+        col = getattr(source, "chosen_color", None)
+        return bool(col) and col in perm.card.colors
+    if k == "pt_or<=":
+        return perm.power <= w[1] or perm.toughness <= w[1]
+    if k == "mv=":
+        return perm.card.cmc == w[1]
+    if k == "own_opp":
+        return source is not None and perm.owner is not source.controller
+    if k == "sel":
+        from .permanent_templates import matches
+        return matches(game, perm, w[1], getattr(source, "controller", None), source)
     return False
 
 
-def _object_subject(text: str):
-    """Subject spec dict for a permanent subject, or None."""
+def _object_subject(text: str, head: bool = False):
+    """Subject spec dict for a permanent subject, or None. ``head``: a trigger head, where the watching permanent is
+    there to read "of the chosen type" and the selector() fallback applies (#404)."""
     spec = {"self": False, "host": "", "alts": None, "other": False, "ctrl": "any", "with": [], "batch": False}
     m = re.fullmatch(r"~ or (equipped|enchanted) creature", text)
     if m:
@@ -220,7 +244,7 @@ def _object_subject(text: str):
         return dict(spec, self=True)
     m = re.fullmatch(r"~ or (.+)", text)
     if m:
-        rest = _object_subject(m[1])
+        rest = _object_subject(m[1], head)
         if rest is None or rest["self"] or rest["host"]:
             return None
         return dict(rest, self=True)
@@ -232,7 +256,7 @@ def _object_subject(text: str):
     spec["batch"] = art.startswith("one or more")
     for _ in range(3):
         hit = None
-        for pat, mk in _WITH:
+        for pat, mk in _WITH + (_HEAD_WITH if head else []):
             mm = re.search(pat + r"$", desc)
             if mm:
                 hit = (mm, mk)
@@ -249,6 +273,18 @@ def _object_subject(text: str):
             continue
         break
     alts = _desc_alts(desc, plural=spec["batch"])
+    words = re.findall(r"[\w'-]+", desc.lower())
+    if alts is not None and spec["with"] and any(words.count(ws[-1].lower()) > 1 for ws in alts):
+        return None     # "legendary creature or creature with mana value 1": the qualifier binds to one alternative
+    if alts is None and head:
+        # the effect grammar's noun-phrase reader (permanent_templates.selector): a qualifier it knows works in
+        # trigger heads too ("with a coin counter on it", "suspected", "non-Human")
+        from .permanent_templates import selector
+        sel = selector(desc, plural=spec["batch"])
+        if sel is None or sel.get("other") or "controller" in sel or "owner" in sel:
+            return None
+        spec["with"].append(("sel", sel))
+        alts = [("permanent",)]
     if alts is None:
         return None
     spec["alts"] = alts
@@ -324,7 +360,10 @@ _SPELL_ADJ = _ADJ | {"kicked", "nonpermanent", "spell"}
 def _spell_spec(text: str):
     """'a creature spell with mana value 4 or greater', 'your first spell each turn', 'an instant or sorcery
     spell from your graveyard' -> spec, or None."""
-    spec = {"alts": None, "nth": 0, "zone": "", "mv": None, "turn": "", "targets": ""}
+    spec = {"alts": None, "nth": 0, "zone": "", "mv": None, "turn": "", "targets": "", "q": []}
+    text = cx_trig_cast.head(text, spec)
+    if text is None:
+        return None
     m = re.fullmatch(r"(?:your|their) (first|second|third) (.*?)spells? (?:each turn|during each opponent's turn)", text)
     if m:
         if text.endswith("during each opponent's turn"):
@@ -356,11 +395,20 @@ def _spell_spec(text: str):
                 text = text[:mm.start()]
                 break
         else:
-            break
+            got = cx_trig_cast.tail(text)
+            if got is None:
+                break
+            spec["q"].append(got[0])
+            text = got[1]
     m = re.fullmatch(r"(?:an?|one or more) (.*?)spells?", text)
     if not m:
         return None
     desc = (m[1] or "").strip().rstrip(",")
+    if spec.get("alts_override"):
+        if desc:
+            return None
+        spec["alts"] = spec.pop("alts_override")
+        return spec
     if not desc:
         spec["alts"] = [("spell",)]
         return spec
@@ -368,10 +416,14 @@ def _spell_spec(text: str):
     return spec if spec["alts"] is not None else None
 
 
-def _spell_ok(game, spec, item, caster, me, copied=False) -> bool:
+def _spell_ok(game, spec, item, caster, me, copied=False, perm=None) -> bool:
     if item is None or item.card is None:
         return False
     if not any(all(_spell_word(item, w) for w in ws) for ws in spec["alts"]):
+        return False
+    if spec.get("other") and perm is not None and item.card is perm.card:
+        return False
+    if spec.get("q") and not cx_trig_cast.ok(game, spec["q"], item, caster, me, perm):
         return False
     if spec["mv"]:
         n, way = spec["mv"]
@@ -402,8 +454,13 @@ def _spell_ok(game, spec, item, caster, me, copied=False) -> bool:
         if spec["targets"] == "my_creature" and not any(isinstance(t, Permanent) and t.is_creature
                                                          and t.controller is caster for t in tg):
             return False
-    if spec["nth"] and (copied or game.spells_cast_turn(caster) != spec["nth"]):
-        return False
+    if spec["nth"] or spec.get("nth_not"):
+        if copied:
+            return False
+        n = game.spells_cast_turn(caster) if spec["alts"] == [("spell",)] else \
+            cx_trig_cast.nth_of_kind(game, caster, spec["alts"], _spell_word)
+        if spec["nth"] and n != spec["nth"] or spec.get("nth_not") and n == spec["nth_not"]:
+            return False
     return True
 
 
@@ -416,6 +473,15 @@ _OBJ_VERBS = [
     (r"attacks? (?:one of your opponents|an opponent)(?: or a planeswalker an opponent controls)?", ("attacks",),
      "atk_opp"),
     (r"attacks?", ("attacks",), ""),
+    (r"attacks? alone", ("attacks",), "alone"),
+    (r"attacks? and (?:isn't|aren't) blocked", ("unblocked",), ""),
+    (r"attacks? enchanted player", ("attacks",), "atk_cursed"),
+    (r"deals? combat damage to enchanted player", ("combat_damage_player",), "dmg_cursed"),
+    (r"becomes? the target of a spell you control", ("targeted",), "tg_spell_mine"),
+    (r"becomes? the target of a spell", ("targeted",), "tg_spell"),
+    (r"deals? (?:\d+) or more damage to (?:a player|an opponent)", ("damages_player",), "dmg_n"),
+    (r"deals? damage to (?:an?|one or more) (?!(?:player|opponent|creature|player or planeswalker)$)[\w ,'-]+",
+     ("deals_damage",), "dmgd"),
     (r"attacks? or blocks?", ("attacks", "blocks"), ""),
     (r"blocks? or becomes? blocked", ("blocks", "becomes_blocked"), ""),
     (r"blocks?", ("blocks",), ""),
@@ -428,6 +494,13 @@ _OBJ_VERBS = [
     (r"enters?(?: the battlefield)?", ("etb",), ""),
     (r"enters?(?: the battlefield)? under your control", ("etb",), "etb_mine"),
     (r"enters?(?: the battlefield)? under an opponent's control", ("etb",), "etb_opp"),
+    (r"enters? from a graveyard", ("etb",), "from_gy"),
+    (r"enters? from your graveyard", ("etb",), "from_my_gy"),
+    (r"enters? from exile", ("etb",), "from_exile"),
+    (r"(?:is|are) (?:exiled|put into exile) from the battlefield|(?:is|are) put into exile", ("leaves",), "to_exile"),
+    (r"(?:is|are) returned to (?:its owner's|their owners') hand", ("leaves",), "to_hand"),
+    (r"(?:is|are) returned to your hand", ("leaves",), "to_my_hand"),
+    (r"leaves? the battlefield without dying", ("leaves",), "no_die"),
     (r"leaves? the battlefield", ("leaves",), ""),
     (r"becomes? tapped", ("becomes_tapped",), ""),
     (r"becomes? untapped", ("becomes_untapped",), ""),
@@ -448,12 +521,15 @@ _OBJ_VERBS = [
     (r"becomes? the target of a spell an opponent controls", ("targeted_by_spell",), ""),
     (r"is turned face up|are turned face up", ("turned_face_up",), ""),
     (r"explores?", ("explores",), ""),
-    (r"(?:is|are) put into (?:a|your|an opponent's) graveyard from the battlefield", ("perm_to_gy",), "gy"),
+    (r"(?:is|are) put into a graveyard from the battlefield", ("perm_to_gy",), "gy"),
+    (r"(?:is|are) put into your graveyard from the battlefield", ("perm_to_gy",), "gy_you"),
+    (r"(?:is|are) put into an opponent's graveyard from the battlefield", ("perm_to_gy",), "gy_opp"),
 ]
 _VERB_RE = "|".join(f"(?:{v[0]})" for v in _OBJ_VERBS)
 
 _PLAYER_SUBJ = {"you": "you", "a player": "any", "an opponent": "opp", "each opponent": "opp",
-                "one or more opponents": "opp", "one of your opponents": "opp"}
+                "one or more opponents": "opp", "one of your opponents": "opp", "another player": "opp",
+                "enchanted player": "enchanted"}
 _DISCARD = r"discards? (a card|one or more cards|an? (?:creature|land|noncreature|nonland|artifact|instant or sorcery|" \
            r"instant|sorcery|enchantment|noncreature, nonland) card|another card)"
 _PLAYER_VERBS = [
@@ -481,9 +557,15 @@ _PLAYER_RAW = {"cast": ("any_cast",), "cast_copy": ("any_cast", "spell_copied"),
 
 @functools.lru_cache(maxsize=None)
 def compile_head(head: str):
+    """The head, or the graveyard-arrival wording (cx_trig_events.gy_head) when the base grammar has none."""
+    return _compile_base(head) or cx_trig_events.gy_head(head)
+
+
+@functools.lru_cache(maxsize=None)
+def _compile_base(head: str):
     """The head ("Whenever a Goblin you control attacks") -> (raw events, matcher spec), or None."""
     m = re.fullmatch(r"When(?:ever)? (.+)", head)
-    if not m or re.search(r"\b(?:this turn|this combat|while|commander|chosen|named|each combat)\b",
+    if not m or re.search(r"\b(?:this turn|this combat|while|commander|named|each combat)\b",
                           m[1].replace("attack while creatures you control have total power", "attack")) or \
             re.match(r"(?:it|that|they|this) ", m[1]):
         return None
@@ -497,6 +579,8 @@ def compile_head(head: str):
             if not vm:
                 continue
             spec = {"player": who, "kind": kind}
+            if not cx_trig_heads.subject_takes(who, kind):
+                return None
             if kind in ("cast", "cast_copy", "copy"):
                 spell = _spell_spec(vm[1])
                 if spell is None:
@@ -519,10 +603,13 @@ def compile_head(head: str):
                 spec["alts"] = alts
             return _PLAYER_RAW[kind], spec
         return None
+    counters = cx_trig_heads.counter_head(body)
+    if counters is not None:
+        return counters
     om = re.fullmatch(rf"(.+?) ((?:{_VERB_RE})(?: or (?:{_VERB_RE}))*)", body)
     if not om:
         return None
-    subject = _object_subject(om[1])
+    subject = _object_subject(om[1], head=True)
     if subject is None:
         return None
     raws, flags = [], []
@@ -538,6 +625,10 @@ def compile_head(head: str):
                     best = (vm.end(), raw, flag)
         if best is None:
             return None
+        if best[2] in ("dmgd", "dmg_n"):
+            got = cx_trig_heads.verb_arg(best[2], rest[:best[0]], subject)
+            if got is None:
+                return None
         if best[2] == "by":
             by = re.search(r" by (?:an?|one or more) ([\w/ -]+?)(?: creatures?)?$", rest[:best[0]])
             alts = _desc_alts(by[1], plural=True) if by else None
@@ -626,6 +717,8 @@ def observe(game, p, event, source=None, context=None, subject=None):
         return      # fired twice (with and without a source); listen once
     if event == "any_cast" and getattr(context, "controller", context) is not p:
         return      # fired once per player; listen to the caster's copy (context: the cast spell)
+    if event == "any_cast" and context is not None:
+        cx_trig_cast.record(game, context)      # ordinal heads count the turn's casts of one kind
     from .residual_templates import trigger_suppressed
     if trigger_suppressed(game, event, source, context, subject):
         return      # Torpor Orb and friends
@@ -635,6 +728,7 @@ def observe(game, p, event, source=None, context=None, subject=None):
         watchers.append(source)     # "~ or another creature dies": the dying source still sees it
     if event == "perm_to_gy" and isinstance(subject, Permanent) and subject not in watchers and _has_ev(subject):
         watchers.append(subject)
+    _observe_graveyards(game, p, event, source, context, subject)
     if not watchers:
         return
     ev = "ev:" + event
@@ -650,6 +744,8 @@ def observe(game, p, event, source=None, context=None, subject=None):
                          any(e.target in ("that_player", "that_controller") for e in trig.effects))
             if ctx is False:
                 continue
+            if any(e.data.get("ref_subject") for e in trig.effects) and isinstance(source or subject, Permanent):
+                ctx = source if source is not None else subject      # "its controller": the event's subject (#315)
             if spec.get("batch") or spec.get("kind") in ("gain_first",):
                 key = ("ev_batch", i)
                 stamp = (game.turn, game.step, getattr(game, "resolving_item", None) and id(game.resolving_item))
@@ -703,23 +799,56 @@ def observe(game, p, event, source=None, context=None, subject=None):
                                intervening_if=trig.intervening_if)
 
 
+class _CardWatcher:
+    """A card in a graveyard listening with a player-subject head: its owner is "you"."""
+    def __init__(self, card, owner):
+        self.card, self.controller = card, owner
+
+
+def _observe_graveyards(game, p, event, source, context, subject):
+    """"Whenever you cast a spell with cascade, return this card from your graveyard to your hand" (Aurora Phoenix):
+    ev: triggers of graveyard cards. Only player-subject heads ("you cast ...") are read from a graveyard; an
+    object subject ("~ or another creature") needs a permanent."""
+    ev = "ev:" + event
+    for owner in game.players:
+        for card in list(owner.graveyard):
+            for trig in getattr(card, "gy_triggers", ()):
+                if trig.event != ev:
+                    continue
+                got = compile_head(trig.filter)
+                if got is None or "player" not in got[1]:
+                    continue
+                if _match(game, got[1], event, _CardWatcher(card, owner), p, source, context, subject) is False:
+                    continue
+                game.queue_trigger(owner, trig.effects, None, card.name, context=card)
+
+
 def _match(game, spec, event, perm, p, source, context, subject, wants_player=False):
     """The trigger's context (the creature or player "it"/"that player" means) if the event matches, else False."""
     from .engine.state import Permanent
     me = perm.controller
+    if "gy" in spec:
+        got = cx_trig_events.gy_match(game, spec["gy"], perm, p, source, context, subject)
+        return p if got is not False and wants_player else got      # "that player": the graveyard's owner
     if "player" in spec:
         actor = game.opponent(p) if event == "opp_loses_life" else p
         if spec["player"] == "you" and actor is not me:
             return False
         if spec["player"] == "opp" and actor is me:
             return False
+        if spec["player"] == "enchanted" and (actor is None or getattr(perm, "curse_target", None) is not actor):
+            return False        # a Curse: the player it enchants
+        if not cx_trig_heads.player_ok(game, spec, actor, me):
+            return False
+        if spec["kind"] == "src_dmg_me":
+            return game.event_dmg_by        # "that player": the damaging source's controller
         kind = spec["kind"]
         if kind in ("cast", "cast_copy", "copy"):
             item = next((s for s in reversed(game.stack) if s.is_spell and s.card is subject), None) \
                 if subject is not None else None
             if item is None and game.stack and game.stack[-1].is_spell:
                 item = game.stack[-1]
-            if not _spell_ok(game, spec["spell"], item, actor, me, copied=event == "spell_copied"):
+            if not _spell_ok(game, spec["spell"], item, actor, me, copied=event == "spell_copied", perm=perm):
                 return False
             return item if actor is me else actor
         if kind == "draw_nth":
@@ -763,6 +892,19 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
             return False
     if flag == "by" and not (isinstance(context, Permanent) and _perm_fits(game, context, spec["by"])):
         return False
+    if flag in ("from_gy", "from_my_gy", "from_exile"):
+        came = getattr(obj, "entered_from", None)
+        if came != ("exile" if flag == "from_exile" else "graveyard") or flag == "from_my_gy" and obj.owner is not me:
+            return False
+    if flag in ("to_exile", "to_hand", "to_my_hand", "no_die"):
+        dest = getattr(obj, "last_destination", None)
+        if flag == "no_die" and dest in (None, "graveyard") or flag == "to_exile" and dest != "exile" or \
+                flag in ("to_hand", "to_my_hand") and dest != "hand" or flag == "to_my_hand" and obj.owner is not me:
+            return False
+    if flag in ("gy_you", "gy_opp") and (getattr(obj, "owner", None) is me) != (flag == "gy_you"):
+        return False        # whose graveyard: the owner's
+    if flag in cx_trig_heads.FLAGS and not cx_trig_heads.flag_ok(game, flag, spec, perm, obj, context):
+        return False
     if flag == "dmg_me" and context is not me:
         return False
     if flag == "dmg_creature" and not (isinstance(context, Permanent) and context.is_creature):
@@ -775,3 +917,5 @@ def _match(game, spec, event, perm, p, source, context, subject, wants_player=Fa
 
 
 from . import cx_trig_events  # noqa: E402  (extends the player-verb table above)
+from . import cx_trig_cast  # noqa: E402  (cast-head qualifiers)
+from . import cx_trig_heads  # noqa: E402  (attack / damage / targeting / counter heads)

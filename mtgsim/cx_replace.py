@@ -27,13 +27,17 @@ def parse_line(line: str, st) -> bool:
     if lead:        # "Adamant — If at least three red mana was spent to cast ~, ~ enters with a +1/+1 counter on it."
         line = f"{lead[1]}{lead[3]} if {lead[2]}."
     m = re.fullmatch(r"(?:[A-Z][\w' -]* — )?~ enters(?: the battlefield)? with (a|an|one|two|three|four|five|six|"
-                     r"seven|eight|\d+) (?:additional )?(\+1/\+1|-1/-1|[a-z]+) counters? on it if (.+)\.", line)
+                     r"seven|eight|\d+) (?:additional )?(\+1/\+1|-1/-1|[a-z]+) counters? on it (if|unless) (.+)\.", line)
     if m:
-        from .cx_condlib import parse
+        from .cx_condlib import _code, parse
         from .cards.clauses import _if_cond
-        code = parse(m[3]) or _if_cond(m[3])
+        # "if it wasn't cast": "it" is the entering permanent itself here (Freestrider Commando)
+        cond = re.sub(r"^it wasn't cast\b", "~ wasn't cast", m[4])
+        code = parse(cond) or (_if_cond(cond) if m[3] == "if" else "")
         if not code:
             return False
+        if m[3] == "unless":    # "unless two or more colors of mana were spent to cast it" (Steel Exemplar)
+            code = _code("not", code)
         n = int(m[1]) if m[1].isdigit() else _N[m[1]]
         _rules(st).setdefault("cx_etb_if", []).append((code, n, m[2]))
         return True

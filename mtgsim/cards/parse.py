@@ -23,7 +23,8 @@ def hostile_may(text, new):
     """Mark a lone targeted "you may destroy/exile/return/deal damage to target ..." as optional-by-target (see Game.resolve_item)."""
     from ..engine.state import TARGETED
     if len(new) != 1 or new[0].kind not in ("destroy", "exile", "exile_permanent", "bounce", "damage", "tap") \
-            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", text, re.I):
+            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", re.sub(
+                r"\bequal to the number of [^,]+?(?= to (?:target|any target)\b|$)", "", text), re.I):
         return False
     new[0].data["may_hostile"] = True
     return True
@@ -245,11 +246,6 @@ def _parse_effects(text: str, opts: bool = False):
                 effects += new
                 continue
         mx = re.fullmatch(r"(.+?),? where X is (.+)", s, re.I)
-        # Named-card counts still lack a name-preserving quantity spec.
-        if mx and re.search(r"\bX\b", mx[1]) and re.search(r"\btarget (?:player|opponent)\b", mx[1], re.I) \
-                and re.search(r"\bnamed\b", mx[2], re.I):
-            unmatched.append(s)
-            continue
         if mx and re.search(r"\bX\b", mx[1]) and _xq(mx[2]):
             spec = _xq(mx[2])
             new, bad = [], True
@@ -983,8 +979,8 @@ def _parse_trigger_line(line: str):
             flt = "blocks_flying"
         if events == ("cast_instant_sorcery",) and "that targets a creature" in pat:
             flt = "targets_creature"
-        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"it deals \w+ damage to [^.]* and ", rest):
-            rest = "~" + rest[2:]       # "When ~ enters, it deals 4 damage to any target and 2 damage to you" (#320)
+        from ..self_trigger_it import rewrite as _self_it
+        rest = _self_it(events, line, rest)        # "When ~ enters, it deals ..." / "you may have it deal ..." (#319, #320)
         if events in (("targeted_mine",), ("dealt_damage",)):
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("cast_cmc",):

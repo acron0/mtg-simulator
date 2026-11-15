@@ -36,12 +36,16 @@ class Vocabulary(unittest.TestCase):
                          ("arith", ("count", "Cave"), "+", ("gy", "Cave")))
 
     def test_templates_refuse_unknown_words(self):
-        for text in ("Draw a card for each snow permanent you control.",
-                     "Create a 1/1 green Saproling creature token for each snow land you control.",
-                     "Add {G} for each snow Forest you control."):
+        for text in ("Draw a card for each frob permanent you control.",
+                     "Create a 1/1 green Saproling creature token for each frob land you control.",
+                     "Add {G} for each frob Forest you control."):
             effects, bad = _parse_effects(text)
             self.assertEqual(bad, [text.rstrip()], text)
-        pumped = card("Snow Bear", "{2}{G}", "Creature — Bear", "Snow Bear gets +1/+1 for each snow land you control.",
+        # "snow" is a selector trait since #536 (#404 slice 4): counted, not dropped
+        effects, bad = _parse_effects("Draw a card for each snow permanent you control.")
+        self.assertEqual(bad, [])
+        self.assertEqual(effects[0].data["xq"][2]["selector"]["traits"], ["snow"])
+        pumped = card("Frob Bear", "{2}{G}", "Creature — Bear", "Frob Bear gets +1/+1 for each frob land you control.",
                       1, 1)
         self.assertNotEqual(pumped.unsupported, [])
         self.assertEqual(pumped.pt_per, "")
@@ -102,9 +106,10 @@ class RealCards(unittest.TestCase):
         from mtgsim.carddb import CardDB
         from mtgsim.coverage import card_coverage
         db = CardDB(offline=True)
-        for name in ("Regal Force", "Take Heart", "Lucid Dreams", "Calamitous Cave-In", "Wandering Stream"):
+        for name in ("Regal Force", "Take Heart", "Lucid Dreams", "Calamitous Cave-In", "Wandering Stream",
+                     "Skred", "Conifer Wurm"):     # Skred / Conifer Wurm: snow counts since #536
             self.assertEqual(card_coverage(db.get(name)).status, "full", name)       # now through readings that count
-        for name in ("Skred", "Conifer Wurm", "Spite of Mogis", "Herd Migration", "Golden Ratio"):
+        for name in ("Spite of Mogis", "Herd Migration", "Golden Ratio"):
             self.assertEqual(card_coverage(db.get(name)).status, "partial", name)    # no reading counts these yet
 
 

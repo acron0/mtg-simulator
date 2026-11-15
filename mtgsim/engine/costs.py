@@ -199,6 +199,9 @@ class CostsMixin:
         p.expend = (self.turn, old + len(payment))
         for n in range(old + 1, old + len(payment) + 1):
             self.fire(p, "expend", subject=n)
+        for s in payment:       # "Whenever a player taps a land for mana" (cx_trig_heads)
+            if isinstance(s, Permanent) and s.tapped and s in s.controller.battlefield:
+                self.fire(s.controller, "tapped_for_mana", s)
         return payment
 
     def x_quantity(self, p: Player, spec: tuple, item, prev) -> int:

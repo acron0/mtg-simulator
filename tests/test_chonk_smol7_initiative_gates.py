@@ -67,7 +67,8 @@ class InitiativeGates(unittest.TestCase):
         t, = triggers
         self.assertEqual(t.event, "opp_upkeep")
         self.assertEqual([(e.kind, e.cond, e.target) for e in t.effects],
-                         [("untap_target", "", "creature_mine"), ("untap_all", "dungeon_complete", "none")])
+                         [("untap_target", 'lib:["not","dungeon_complete"]', "creature_mine"),
+                          ("untap_all", "dungeon_complete", "none")])   # one or the other (#321)
 
     def test_dungeon_complete_pump_rider(self):
         triggers, bad, _ = _parse_trigger(

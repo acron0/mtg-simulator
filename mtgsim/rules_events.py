@@ -116,6 +116,9 @@ def zone_destination(game, permanent, destination):
                     any(x.card.exile_damaged for x in game.opponent(permanent.controller).battlefield), to_exile),
         Replacement("would-die-exile", lambda e: e.destination == "graveyard" and _cx_exiles(game, permanent),
                     to_exile),
+        # "If it would leave the battlefield, exile it instead of putting it anywhere else" (cx_replace_zones)
+        Replacement("leave-exile", lambda e: e.destination != "exile" and getattr(permanent, "exile_on_leave", False),
+                    to_exile),
     ]
     return replace_event(MoveIntent(destination), replacements,
         lambda choices, event: game.hook(permanent.controller, "choose_replacement")(

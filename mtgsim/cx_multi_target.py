@@ -86,7 +86,10 @@ def _rewrite_any(s: str):
     if agreed == rest and (not head or head.endswith(", ")):       # the list is the subject
         agreed = re.sub(rf"^((?:\s+(?!(?:{_VERBS})\b)\S+)*?)\s+({_VERBS})\b", lambda v: v[1] + " " + _AGREE[v[2]],
                         rest, count=1)
-    rest = re.sub(rf"(\band|, then) ({_VERBS})\b{_OUTSIDE_QUOTES}", lambda v: f"{v[1]} {_AGREE[v[2]]}", agreed)
+    if agreed != rest:   # the list is the subject: later verbs agree with it too
+        rest = re.sub(rf"(\band|, then) ({_VERBS})\b{_OUTSIDE_QUOTES}", lambda v: f"{v[1]} {_AGREE[v[2]]}", agreed)
+    else:                # "exile any number of target ..., then return those cards": you stay the subject
+        rest = re.sub(rf"\band (get|gain|have|become|lose)\b{_OUTSIDE_QUOTES}", lambda v: "and " + _AGREE[v[1]], rest)
     if players:          # "each discard their hands": one player's own hand
         rest = re.sub(r"\btheir (hand|graveyard)s\b", r"their \1", rest)
         rest = re.sub(r"\btheir libraries\b", "their library", rest)
@@ -144,6 +147,9 @@ def choose_list(game, me, eff) -> tuple:
     side = pick.controller if isinstance(pick, Permanent) else pick
     pool = [x for x in game.legal_targets(me, probe)
             if (x.controller if isinstance(x, Permanent) else x) is side]
+    if probe.kind == "blink":         # not tokens (gone for good) or what gains nothing from re-entering (#318)
+        from .blink import worth_blinking
+        pool = [x for x in pool if worth_blinking(me, probe, x)]
     pool = sorted(pool, key=lambda x: -perm_value(x) if isinstance(x, Permanent) else 0)
     most = max_count(game, me, eff) if not (eff.data.get("count_x") and eff.amount) else eff.amount
     return tuple(pool if most is None else pool[:most])

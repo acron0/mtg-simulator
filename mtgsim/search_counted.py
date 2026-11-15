@@ -473,6 +473,15 @@ def resolve(game, p, eff, target, item):
         game.library_searched(who)
 
 
+def _mv_x_ok(d, c) -> bool:
+    """A card's mana value against the X the AI is judging an activation with (data["x_now"], set by
+    policy.ability_worth); without a chosen X the comparison isn't made."""
+    x, op = d.get("x_now"), d.get("mv_x")
+    if x is None or not op:
+        return True
+    return c.cmc <= x if op == "less" else c.cmc >= x if op == "greater" else c.cmc == x
+
+
 def value(game, me, eff):
     """The default AI's worth of a search_plan it controls (ai._extra_value): about 1.5 per card found for
     the hand or the battlefield, less for the top, the graveyard and exile; what opponents find counts
@@ -484,7 +493,7 @@ def value(game, me, eff):
 
     def found(player):
         pool = list(player.library) + (list(player.graveyard) if d.get("graveyard") else [])
-        k = min(n, sum(card_matches(c, d["what"]) for c in pool))
+        k = min(n, sum(card_matches(c, d["what"]) and _mv_x_ok(d, c) for c in pool))
         v = 0.0
         for dest, count, *_ in d["plan"]:
             take = k if count is None else min(count, k)
@@ -503,15 +512,21 @@ def value(game, me, eff):
 
 def sac_upgrade(game, me, perm, effects, victim):
     """Whether sacrificing victim to pay for these effects searches up something better (Birthing Pod: "mana
-    value equal to 1 plus the sacrificed creature's mana value"), judged with victim's stats as the sacrifice."""
+    value equal to 1 plus the sacrificed creature's mana value"), judged with victim's stats as the sacrifice;
+    or, for "mana value X or less" (Fiend Artisan), with the X the AI chose (data["x_now"])."""
     from types import SimpleNamespace
     from .engine import card_matches
     from .engine.policy import perm_value
     from .ai import card_value
     for e in effects:
         d = e.data
-        if e.kind != "search_plan" or not d.get("mv_q") or d.get("searcher", "you") != "you" or \
-                d["plan"][0][0] != "battlefield":
+        if e.kind != "search_plan" or not (d.get("mv_q") or d.get("x_now") is not None) or \
+                d.get("searcher", "you") != "you" or d["plan"][0][0] != "battlefield":
+            continue
+        if not d.get("mv_q"):
+            found = [c for c in me.library if card_matches(c, d["what"]) and _mv_x_ok(d, c)]
+            if found and max(card_value(c) for c in found) > perm_value(victim):
+                return True
             continue
         item = SimpleNamespace(source=perm, card=None, x=0, context=None, this_way=None,
                                gate_sac_stats=(victim.power, victim.toughness, victim.card.cmc))

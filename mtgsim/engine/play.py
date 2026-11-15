@@ -27,6 +27,7 @@ SPELL_KINDS = {   # "Whenever you cast a multicolored / historic / blue ... spel
 class PlayMixin:
     def play_land(self, p: Player, card: CardDef, back: bool = False):
         """Play a land from hand; with back=True, a modal double-faced card's land face."""
+        from ..cx_exile_play import foreign_zone
         for zone in (p.hand, p.exile, p.graveyard, p.library):
             if card in zone:
                 card = zone.get(card)
@@ -37,6 +38,8 @@ class PlayMixin:
             p.hand.remove(card)
         elif card in p.exile and card in self.impulse_cards(p):
             p.exile.remove(card)
+        elif foreign_zone(p, card) is not None:     # a land p may play from another player's exile (#316)
+            foreign_zone(p, card).remove(card)
         elif card in p.library:     # "You may play lands from the top of your library." (cx_top)
             from .. import cx_top
             assert cx_top.land_ok(p, card)
@@ -222,6 +225,7 @@ class PlayMixin:
             if paid is False:
                 return False
             sac_stats = sac_stats or paid
+        discarded_cost = None
         if card.extra_discard and not card.discard_or_pay and not p.hand:
             return False
         if kind == "escape":
@@ -241,6 +245,7 @@ class PlayMixin:
             if pitched not in p.hand:
                 return False
             self.discard_card(p, pitched)
+            discarded_cost = pitched        # ("discarded", stat): "the discarded card's mana value" (#313)
             self.log(f"discards {pitched.name} for {card.name}", p)
         if kind == "channel":      # channel / reinforce: "discard this card" is a real discard (madness, "whenever you discard")
             from ..madness import after_discard, discard_destination
@@ -301,6 +306,9 @@ class PlayMixin:
         item.evidence = self.collect_evidence(p, card)
         item.emerged_toughness = getattr(self, "_emerge_toughness", None) if kind == "emerge" else None
         item.sac_stats = sac_stats
+        if discarded_cost is not None:
+            item.discarded_stats = (int(discarded_cost.power or 0), int(discarded_cost.toughness or 0),
+                                    discarded_cost.cmc)
         item.behold_exiled = list(getattr(self, "_add_cost_exiled", ())) if add_cost is not None else []
         if exiled_gy is not None:    # for ("exiled_gy", "power") and friends (Corpse Lunge)
             item.exiled_gy_stats = (int(exiled_gy.power or 0), int(exiled_gy.toughness or 0), exiled_gy.cmc)
@@ -316,6 +324,7 @@ class PlayMixin:
         if getattr(card, "spell_copy", False):
             item.kind = "copy"
             item.physical_card = None
+        item.sorcery_timing = self.active is p and self.step in ("main1", "main2") and not self.stack   # cx_delayed
         self.stack.append(item)
         if item.physical_card is not None and item.move_origin is not None:
             before, origin, actor, _, _ = item.move_origin

@@ -75,11 +75,15 @@ def bounce(game, p, target, eff=None, item=None, **_):
 
 def _from_graveyard(game, perm):
     """"When ~ dies / is put into a graveyard from the battlefield, return it to its owner's hand" (Rancor,
-    Immortal Phoenix): the trigger finds the card it became in the graveyard (CR 400.7), if it is still there."""
+    Immortal Phoenix): the trigger finds the card it became in the graveyard (CR 400.7), if it is still there.
+    Also exile, for "dies or is put into exile from the battlefield, return it to its owner's hand"."""
+    if not isinstance(perm, Permanent):
+        return
     card = getattr(perm, "front", None)
-    if isinstance(perm, Permanent) and getattr(perm, "last_destination", None) == "graveyard" and card is not None \
-            and not card.is_token and card in perm.owner.graveyard:
-        game.move_card(card, perm.owner.graveyard, perm.owner.hand, reason="return")
+    dest = getattr(perm, "last_destination", None)
+    zone = perm.owner.graveyard if dest == "graveyard" else perm.owner.exile if dest == "exile" else None
+    if zone is not None and card is not None and not card.is_token and card in zone:
+        game.move_card(card, zone, perm.owner.hand, reason="return")
         game.log(f"{card.name} returns to its owner's hand", perm.owner)
 
 

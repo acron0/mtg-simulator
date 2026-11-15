@@ -77,6 +77,7 @@ class BattlefieldMixin:
         perm.front.generation += 1
         perm.front.zone = perm
         perm.entered_turn = self.turn
+        perm.entered_from = source_zone        # "enters from a graveyard" (cx_events)
         perm.rules_timestamp = self.next_effect_timestamp()
         from ..cx_type_grants import changed as type_grants_changed
         type_grants_changed(self, perm)         # a creature type granted by a static ability (layer 4)

@@ -346,6 +346,13 @@
     "cards": ["A-Akki Ronin"]
   },
   {
+    "match": "(?:you )?may draw up to (one|two|three|four|\\d+) cards?",
+    "effect": "cx_draw_up_to_n",
+    "amount": "$1:num",
+    "example": "You may draw up to two cards",
+    "cards": ["Arcane Denial"]
+  },
+  {
     "match": "(?:then )?if you have fewer than (three) cards in hand, draw cards equal to the difference",
     "effect": "draw_up_to",
     "amount": "$1:num",

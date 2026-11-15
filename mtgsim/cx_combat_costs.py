@@ -25,7 +25,35 @@ def _cost(text):
     return out
 
 
+_OWN = re.compile(rf"(?:[A-Z][\w' ]* — )?(~|Enchanted creature) can't (attack|block|attack or block) unless "
+                  rf"(you pay|its controller pays) ({_PRICE})( for each \+1/\+1 counter on it| for each card in your hand)?\.")
+
+
+def _own_cost(line, st):
+    """"~ can't attack or block unless you pay {2}." / "Enchanted creature can't attack unless its controller pays
+    {3}." (#325): a price the creature's controller pays when declaring it, recorded as
+    ``advanced_rules["cx_own_combat_cost"]`` (or ``"cx_own_combat_cost@host"`` on an Aura): ((what, cost), ...)."""
+    m = _OWN.fullmatch(line)
+    if not m or (m[1] == "~") != (m[3] == "you pay") or m[1] == "~" and "Creature" not in st.types \
+            or m[1] != "~" and not st.extra.get("aura") or m[1] == "~" and m[5] and "your hand" in m[5]:
+        return False
+    cost = _cost(m[4])
+    if m[5]:
+        if set(cost) != {"generic"}:
+            return False
+        cost = {"generic": ("p1_counters", cost["generic"]) if "counter" in m[5] else ("source_hand", cost["generic"])}
+    what = {"attack": "attack", "block": "block"}.get(m[2], "both")
+    key = "cx_own_combat_cost" + ("" if m[1] == "~" else "@host")
+    rules = st.extra.setdefault("advanced_rules", {})
+    rules[key] = rules.get(key, ()) + ((what, cost),)
+    if m[1] != "~":
+        st.extra["gate_hostile"] = True         # a pacifism-like Aura: auras.finish puts it on their creature
+    return True
+
+
 def parse_line(line, st):
+    if _own_cost(line, st):
+        return True
     variable = re.fullmatch(rf"[Cc]reatures can't ({_ATTACK}) unless their controller pays \{{X\}} "
                             rf"(?:{_EACH}), where X is the number of (enchantments you control|basic land types among lands you control)\.", line)
     counters = re.fullmatch(rf"Each creature with one or more counters on it can't ({_ATTACK}) unless its controller pays "
@@ -107,6 +135,26 @@ def _static_costs(game, creature, action, target=None):
                         elif n[0] == "domain":
                             n = game.x_quantity(source.controller, ("domain",), None, None)
                     _add(out, {pip: n})
+    if creature is not None:
+        _add(out, own_cost(creature, action))
+    return out
+
+
+def own_cost(creature, action) -> dict:
+    """The price creature's own static or its Aura's asks to declare it as an attacker / blocker (#325)."""
+    out = {}
+    rows = [] if creature.abilities_suppressed else \
+        [(creature, r) for r in creature.card.advanced_rules.get("cx_own_combat_cost", ())]
+    rows += [(a, r) for a in creature.auras if not a.abilities_suppressed
+             for r in a.card.advanced_rules.get("cx_own_combat_cost@host", ())]
+    for source, (what, cost) in rows:
+        if what not in (action, "both"):
+            continue
+        for pip, n in cost.items():
+            if isinstance(n, tuple):
+                n = n[1] * (creature.counters.get("+1/+1", 0) if n[0] == "p1_counters"
+                            else len(source.controller.hand))
+            _add(out, {pip: n})
     return out
 
 

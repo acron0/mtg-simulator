@@ -34,7 +34,8 @@ class Parsing(unittest.TestCase):
 
     def test_refusals(self):
         for text, types in (
-                ("Equipped creature is an artifact in addition to its other types.\nEquip {1}", "Artifact — Equipment"),
+                ("Creatures you control with +1/+1 counters on them are Angels in addition to their other types.",
+                 "Enchantment"),        # membership changes without the view being recomputed
                 ("Lands you control are Swamps in addition to their other types.", "Enchantment"),     # land types
                 ("Eldrazi you control are Slivers in addition to their other types.", "Enchantment"),  # reads types
                 ("Equipped creature gets +1/+1 and frobs, and is a Wizard in addition to its other types.\nEquip {1}",

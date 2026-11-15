@@ -703,7 +703,7 @@ def _parse_face(data: dict) -> CardDef:
         extra.setdefault("advanced_rules", {})["no_mana_cost"] = True
     return CardDef(
         name=name, mana_cost=cost, cmc=int(data.get("cmc", 0) or 0), types=types,
-        subtypes=frozenset(type_line.split("—")[1].split()) if "—" in type_line else frozenset(),
+        subtypes=(frozenset(type_line.split("—")[1].split()) if "—" in type_line else frozenset()) | frozenset(extra.pop("_cda_subtypes", ())),
         power=stat(data.get("power")), toughness=stat(data.get("toughness")),
         keywords=frozenset(keywords), produces=frozenset(produces), enters_tapped=enters_tapped,
         spell_effects=spell, etb_effects=etb, unsupported=unsupported, approximations=approximations, oracle=oracle,

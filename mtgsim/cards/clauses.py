@@ -45,9 +45,6 @@ _SUBS = [
                 r"(nonland|noncreature, nonland|nonartifact, nonland|instant or sorcery) card from it(?:\. exile that card)? "
                 r"until ~ leaves the battlefield\.", re.I), lambda m: f"HANDEXILE {m[1].lower()}."),
     (re.compile(r"^(~ gains [a-z]+ until end of turn)\. tap it\.", re.I), r"\1. Tap ~."),
-    # The AI never aims its removal at its own creature, so "another" target is any target.
-    (re.compile(r"(destroy|exile) another target (creature or planeswalker|creature|nonland permanent)(?! you own)", re.I),
-     r"\1 target \2"),
     # Activated and triggered abilities can't be countered in the engine: these counter spells only.
     (re.compile(r"counter target spell, activated ability, or triggered ability", re.I), "counter target spell"),
     # Planeswalkers rarely matter as the target: "creature or planeswalker you control gains ..." is the creature.
@@ -462,6 +459,8 @@ def _xq(text: str):
                  "the amount of life you gained this turn": ("gained",),
                  "the number of cards in your hand": ("hand",),
                  "the number of cards in an opponent's hand": ("opp_hand",)}[tl])
+    if tl in ("the amount of mana spent to cast that spell", "the number of colors of mana spent to cast that spell"):
+        return ("spell", "mana_spent" if tl.startswith("the amount") else "converge")   # its payment (Game.x_quantity)
     m = re.fullmatch(r"that spell's (mana value|power|toughness)|the number of (?:that spell's colors)|"
                      r"the amount of generic mana in that spell's mana cost", t, re.I)
     if m:      # the spell a cast trigger fired on, or the spell a counterspell targets (not the host)

@@ -146,7 +146,7 @@ def _aim(card: CardDef, eff, target) -> list:
 
 # Effects plan_spell values through _extra_value.
 EXTRA_KINDS = {"reanimate_total", "reanimate_one", "tutor_gy", "regrow_perm", "regrow_any", "tutor", "explore", "earthbend", "unblockable", "oring_all", "pump_all", "double_counters", "learn",
-               "tap", "stun", "mill", "proliferate", "search_plan"} | copies.KINDS
+               "tap", "stun", "mill", "proliferate", "search_plan", "gy_move"} | copies.KINDS
 
 CARRIER_KINDS = ("pump", "grant", "p1_counters", "unblockable")   # aimed at the creature that attacks
 
@@ -790,7 +790,9 @@ class HeuristicAI:
             return None
         sized = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2,
                                     data={**e.data, "x": False})
-                 if (e.data or {}).get("x") else e for e in card.spell_effects]
+                 if (e.data or {}).get("x") else
+                 dataclasses.replace(e, amount=x, data={**e.data, "x_n": False})      # "return X target ... cards"
+                 if e.kind == "gy_move" and e.data.get("x_n") else e for e in card.spell_effects]
         return dataclasses.replace(card, spell_effects=sized)
 
     def plan_spell(self, game: Game, me: Player, card: CardDef, precombat: bool = False):
@@ -800,7 +802,8 @@ class HeuristicAI:
             # Unearth: a hasty attacker for one turn; worth casting before combat when it can attack
             base = card.spell_effects[0].data["card"]
             return (card_value(base) / 2 + 1, None) if base.is_creature and opp.life > 0 else None
-        if not card.is_permanent and any((e.data or {}).get("x") for e in card.spell_effects):
+        if not card.is_permanent and any((e.data or {}).get("x") or e.kind == "gy_move" and e.data.get("x_n")
+                                         for e in card.spell_effects):
             sized = self._sized(game, me, card)
             return None if sized is None else self.plan_spell(game, me, sized, precombat)
         if card.is_permanent:
@@ -1164,6 +1167,9 @@ class HeuristicAI:
             return (None, v) if v > 0 else None
         if k in ("reanimate_total", "reanimate_one", "regrow_perm", "regrow_any", "tutor_gy"):
             return None, self._graveyard_value(me, eff, pending)
+        if k == "gy_move":       # nothing back (an empty graveyard) adds nothing; other effects still count
+            mine = eff.data.get("zone") == "mine" and not eff.data.get("x_n")
+            return None, _gy_move_value(me, eff, pending) if mine else 0.0
         if k == "tutor":
             return None, 2.0      # the best card of a kind, from the library
         if k == "search_plan":
@@ -1929,3 +1935,20 @@ class BaselineAI:
                 target = next(a for a in attackers if a not in blocks and a in me.battlefield)
             if target is not None:
                 game.cast(me, card, [target if e.kind == "pump" else None for e in card.spell_effects])
+
+
+def _gy_move_value(me: Player, eff: Effect, pending=()) -> float:
+    """What "return N (target) <kind> cards from your graveyard" gets back, as Game.gy_move picks them (highest
+    mana value first): a creature or other permanent onto the battlefield at about its card value, a card to
+    hand at 1 plus half its mana value."""
+    from .engine.state import _gy_desc
+    d = eff.data
+    pool = [c for c in list(me.graveyard) + list(pending) if copies.fits(c, _gy_desc(d["what"]))]
+    if d.get("cmc") and d["cmc"][0] != "x":
+        lim, cmp = d["cmc"]
+        pool = [c for c in pool if (c.cmc <= lim if cmp == "less" else c.cmc >= lim)]
+    if d["dest"] == "bf":
+        pool = [c for c in pool if c.is_permanent]
+    pool.sort(key=lambda c: -c.cmc)
+    picks = pool if eff.amount == 99 else pool[:eff.amount]
+    return sum(card_value(c) + 0.5 * c.cmc if d["dest"] == "bf" else 1.0 + 0.5 * c.cmc for c in picks)

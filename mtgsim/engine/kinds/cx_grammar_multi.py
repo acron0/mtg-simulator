@@ -6,6 +6,11 @@ from . import kind
 def cx_multi(game, p, eff, target, item, **_):
     from . import HANDLERS
     probe, chain = eff.data["probe"], eff.data["chain"]
+    if probe.kind == "blink" and len(chain) == 1:     # exiled together, then returned together (#318)
+        from ...blink import blink_all
+        with game.targeting(item):
+            members = [m for m in target or () if game.legal_target(p, probe, m)]
+        return blink_all(game, p, chain[0], members, item)
     for member in target or ():
         with game.targeting(item):
             if not game.legal_target(p, probe, member):

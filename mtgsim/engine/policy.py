@@ -82,6 +82,12 @@ def damage_amount(game: Game, eff: Effect, source=None) -> int:
 
 def default_choose_target(game: Game, me: Player, eff: Effect):
     """A reasonable target for eff, respecting hexproof and targeting restrictions."""
+    sel = eff.data.get("selector")
+    if isinstance(sel, dict) and sel.get("scope"):
+        from ..permanent_templates import scope_player
+        if scope_player(game, sel["scope"]) is me:   # "target creature that player controls" and that player is us
+            legal = [x for x in game.legal_targets(me, eff) if isinstance(x, Permanent)]
+            return min(legal, key=perm_value, default=None)
     if eff.target == "multi" and eff.data["probe"].kind == "cx_attach" and eff.data["probe"].data.get("host") != "target":
         from ..cx_attach import choose_many
         return choose_many(game, me, eff)
@@ -90,6 +96,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return choose_list(game, me, eff)
     opp = game.opponent(me)
     legal = game.legal_targets(me, eff)
+    from ..cx_spent import fitting_targets
+    legal = fitting_targets(game, me, eff, legal)      # "if its mana value is <= converge" (Prismatic Ending)
     theirs = [x for x in legal if isinstance(x, Permanent) and x.controller is opp]
     mine = [x for x in legal if isinstance(x, Permanent) and x.controller is me]
     k = eff.kind
@@ -199,6 +207,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return max(theirs if eff.data['power'].startswith('-') else mine, key=perm_value, default=None)
     if k == 'grant_activated':
         return max(mine, key=perm_value, default=None)
+    if k == 'blink':
+        from ..blink import choose_target
+        return choose_target(game, me, eff, mine, theirs)
     if k == 'search_plan' and eff.data.get('name_as_target'):
         from ..search_counted import choose_name_target
         return choose_name_target(game, me, eff)
@@ -336,6 +347,9 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                 if v < 0 and k in ("cx_exchange", "cx_attach") and not e.data.get("optional"):
                     return -1
                 total += max(v, 0.0)
+                continue
+            if k == "blink" and e.data.get("opponent"):
+                total -= 5.0       # "return it under an opponent's control": gives the permanent away (#318)
                 continue
             from ..residual_templates import effect_value
             residual_value = effect_value(game, me, e, tgt)

@@ -103,6 +103,9 @@ def craft(game, p, item, **_):
 
 @kind("counter", "bounce_spell")
 def counter(game, p, eff, target, item, **_):
+    if eff.data.get("ctx_spell"):       # "return that spell to its owner's hand" on a cast trigger (Krark)
+        ctx = getattr(item, "context", None)
+        target = ctx if isinstance(ctx, StackItem) else None
     if eff.data.get("redirect"):       # "Change the target of target spell with a single target" (cx_night_redirect)
         from .cx_night_redirect import redirect_spell
         if eff.amount and isinstance(target, StackItem):       # Divert: "... unless that spell's controller pays {N}"

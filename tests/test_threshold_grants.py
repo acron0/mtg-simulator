@@ -75,3 +75,31 @@ class RealCards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.path.exists(DB), "card database not built")
+class OptionalExile(unittest.TestCase):
+    """"You may exile two cards from your graveyard. If you do / When you do, ...": all or nothing."""
+    def setUp(self):
+        RealCards.setUp(self)
+
+    def run_trigger(self, name, gy):
+        from mtgsim.engine import StackItem
+        perm = self.game.enter_battlefield(self.a, self.db.get(name))
+        self.game.stack.clear() if hasattr(self.game.stack, "clear") else None
+        self.a.graveyard = list(gy)
+        trig = next(t for t in perm.card.triggers if any(e.kind == "exile_own_gy_n" for e in t.effects))
+        self.game.stack.append(StackItem(self.a, list(trig.effects), [None] * len(trig.effects), source=perm,
+                                         name=name))
+        self.game.resolve_top()
+        return perm
+
+    def test_aegis_sculptor_needs_two_cards(self):
+        perm = self.run_trigger("Aegis Sculptor", [ISLAND])
+        self.assertEqual((len(self.a.graveyard), perm.counters.get("+1/+1", 0)), (1, 0))
+        perm = self.run_trigger("Aegis Sculptor", [ISLAND, ISLAND, ISLAND])
+        self.assertEqual((len(self.a.graveyard), perm.counters.get("+1/+1", 0)), (1, 1))
+
+    def test_young_necromancer_needs_two_cards(self):
+        self.run_trigger("Young Necromancer", [BEAR])
+        self.assertEqual(self.a.graveyard, [BEAR])           # nothing exiled, nothing returned

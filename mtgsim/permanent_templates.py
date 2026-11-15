@@ -233,13 +233,13 @@ def selector(text, *, plural=False):
         result['base_pt'] = [int(base[1]), int(base[2])]
         text = text[:base.start()]
     # Only one supported trailing predicate; additional text fails below.
-    m = re.search(r' with (power|toughness|mana value) (\d+) or (less|greater)$', text, re.I)
+    m = re.search(r' with (power|toughness|mana value) (\d+)(?: or (less|greater))?$', text, re.I)
     rel = re.search(r' with toughness greater than (?:its|their) power$', text, re.I)
     if rel:          # Doran's friends: "each creature you control with toughness greater than its power"
         result['tough_gt_power'] = True
         text = text[:rel.start()]
     elif m:
-        result['stat'] = [m[1].lower(), '<=' if m[3].lower() == 'less' else '>=', int(m[2])]
+        result['stat'] = [m[1].lower(), '==' if not m[3] else '<=' if m[3].lower() == 'less' else '>=', int(m[2])]
         text = text[:m.start()]
     else:
         m = re.search(rf' (with|without) (?:an? )?({_COUNTER}) counters?(?: on (?:it|them))?$', text, re.I)
@@ -402,7 +402,7 @@ def matches(game, permanent, spec, controller, source=None):
     if 'stat' in spec:
         stat, op, n = spec['stat']
         value = permanent.card.cmc if stat == 'mana value' else getattr(permanent, stat)
-        if not (value <= n if op == '<=' else value >= n):
+        if not (value <= n if op == '<=' else value >= n if op == '>=' else value == n):
             return False
     return True
 

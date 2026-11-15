@@ -26,6 +26,16 @@ class TargetsMixin:
             return obj in self.stack
         return isinstance(obj, Player)
 
+    def target_x(self, eff: Effect, by: Player) -> int:
+        """X of a target restriction ("with mana value X or less, where X is Q") while targets are chosen or
+        checked. "That spell's ..." is the spell a cast trigger fired on (#317): the trigger's context, which
+        flush_triggers exposes as trigger_context before its stack item exists."""
+        item = self.target_source if isinstance(self.target_source, StackItem) else None
+        spell = eff.data.get('cast_spell')
+        if spell is None and isinstance(getattr(self, 'trigger_context', None), StackItem):
+            spell = self.trigger_context
+        return self.x_quantity(by, eff.data['xq'], item, spell)
+
     def passes_filter(self, eff: Effect, perm: Permanent, by: Player) -> bool:
         spec = eff.data.get('selector')
         if spec is not None:
@@ -33,9 +43,7 @@ class TargetsMixin:
             if eff.data.get('xq') and spec.get('stat') and spec['stat'][2] == 1 and eff.kind != 'damage':
                 # "with power X or less, where X is Q": the shared where-X rule read X as 1 and tagged the effect
                 # with Q (#421); the bound is Q now
-                item = self.target_source if isinstance(self.target_source, StackItem) else None
-                n = self.x_quantity(by, eff.data['xq'], item, None)
-                spec = dict(spec, stat=[spec['stat'][0], spec['stat'][1], n])
+                spec = dict(spec, stat=[spec['stat'][0], spec['stat'][1], self.target_x(eff, by)])
             if not permanent_templates.matches(self, perm, spec, by, source):
                 return False
         if eff.data.get('cx_desc') or eff.data.get('cx_snow'):

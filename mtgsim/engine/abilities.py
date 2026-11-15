@@ -320,7 +320,7 @@ class AbilitiesMixin:
             return False
         if p.counters.get("energy", 0) < c.get("energy", 0):
             return False
-        if c.get("life") and p.life <= c["life"]:
+        if c.get("life") and p.life < c["life"]:          # CR 119.4: paying your last life is legal
             return False
         if c.get("discard") and len(p.hand) < c["discard"]:
             return False
@@ -418,7 +418,13 @@ class AbilitiesMixin:
         if x is not None and act.cost.get("X"):        # X paid as mana: effects see it at full size
             preview = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2)
                        if e.data.get("x") else e for e in preview]
-        targets = self.auto_targets(p, preview, perm) if targets is None else list(targets)
+        auto = targets is None
+        targets = self.auto_targets(p, preview, perm) if auto else list(targets)
+        if auto and x is not None and act.cost.get("X"):           # "{X}, {T}: Tap X target lands": X = the targets
+            from ..cx_multi_target import x_count
+            n = x_count(preview, targets)
+            if n is not None and n != x:
+                return n > 0 and self.activate_ability(p, perm, idx, targets, x=n, counter_choices=counter_choices)
         if not self.valid_action_targets(p, act.effects, targets, perm):
             return False
         from ..cx_abil_mana import AbilityPayment
@@ -453,6 +459,7 @@ class AbilitiesMixin:
             if card not in p.hand:
                 return False
             self.discard_card(p, card)
+            perm.last_discarded = (int(card.power or 0), int(card.toughness or 0), card.cmc)  # ("discarded", stat)
             self.log(f"discards {card.name}", p)
         if c.get("remove_counter"):
             count = c.get('remove_counter_count', 1)

@@ -292,6 +292,17 @@ class CostsMixin:
         if kind == "party":
             # "where X is the number of creatures in your party" (Acquisitions Expert)
             return self.party_size(p)
+        if kind == "card":
+            # "equal to that card's mana value" (card_referent, #313): the card the previous effect moved,
+            # frozen on the stack item when it moved
+            from ..referent import card_stat
+            return max(0, int(card_stat(item, spec[1]) or 0))
+        if kind == "discarded":
+            # "the discarded card's mana value": the card discarded to pay the spell's or ability's cost
+            stats = getattr(item, "discarded_stats", None)
+            if stats is None and src is not None:
+                stats = getattr(src, "last_discarded", None)
+            return _stat_of(stats, spec[1])
         if kind == "exiled_gy":
             # "Damage equal to the exiled card's power" (Molten-Tail Masticore, Corpse Lunge):
             # the card exiled from the graveyard as a cost — item.exiled_gy_stats (spell cost,
@@ -797,7 +808,8 @@ class CostsMixin:
     def impulse_cards(self, p: Player) -> list:
         """Exiled cards p may still play (drops the expired ones)."""
         p.impulse = [(c, t) for c, t in p.impulse if t >= self.turn and c in p.exile]
-        return [c for c, _ in p.impulse]
+        from ..cx_exile_play import foreign_lands      # lands p may play from another player's exile (#316)
+        return [c for c, _ in p.impulse] + foreign_lands(p)
 
     def _origin(self, card: CardDef):
         return getattr(card, "origin", None) or (card, "", None)
@@ -861,9 +873,9 @@ class CostsMixin:
         from ..residual_templates import life_locked
         if life_locked(p) and (card.extra_life_cost or alt is not None and alt.life):
             return False
-        if alt is not None and alt.life and p.life <= alt.life:
+        if alt is not None and alt.life and p.life < alt.life:      # CR 119.4 (#467)
             return False
-        if card.extra_life_cost and p.life <= card.extra_life_cost:
+        if card.extra_life_cost and p.life < card.extra_life_cost:
             return False
         if card.extra_discard and not card.discard_or_pay and self.spare_cards(p, card) < card.extra_discard:
             return False

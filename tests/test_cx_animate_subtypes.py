@@ -163,3 +163,28 @@ class RealCards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(DB_FILE.exists(), "card database not built")
+class RestrictedType(Base):
+    def test_boldwyr_cowards_the_opponents_creature_and_warriors_its_own(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.engine.policy import default_choose_target
+        boldwyr = CardDB().get("Boldwyr Intimidator")
+        src = self.perm(boldwyr, self.a)
+        mine = self.perm(BEAR, self.a)
+        theirs = self.perm(card("Test Giant", "{4}", "Creature — Giant", "", 5, 5), self.b)
+        coward, warrior = (a.effects[0] for a in boldwyr.activated)
+        self.game.target_source = src
+        target = default_choose_target(self.game, self.a, coward)
+        self.assertIs(target, theirs)
+        self.assertIsNot(target, mine)
+        self.assertIn(default_choose_target(self.game, self.a, warrior), (mine, src))
+
+    def test_unrestricted_type_change_is_mine(self):
+        from mtgsim.engine.policy import default_choose_target
+        mine = self.perm(BEAR, self.a)
+        self.perm(card("Test Giant", "{4}", "Creature — Giant", "", 5, 5), self.b)
+        eff = parse_sentence("Until end of turn, target creature becomes a Pirate in addition to its other types.")[0]
+        self.game.target_source = None
+        self.assertIs(default_choose_target(self.game, self.a, eff), mine)

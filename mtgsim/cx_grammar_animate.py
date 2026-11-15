@@ -180,9 +180,23 @@ def becomes(m, clause):
         return None
     data["eot"] = clause.duration == "eot"
     # "becomes a white Rabbit with base power and toughness 0/1" shrinks a creature: aim it at theirs.
-    side = "theirs" if data.get("subtypes_only") and "pt" in data and sum(data["pt"]) <= 2 else "mine"
+    side = "theirs" if data.get("subtypes_only") and "pt" in data and sum(data["pt"]) <= 2 else \
+        "type" if data.get("subtypes_only") and "pt" not in data else "mine"      # see type_side
     parts = [Part("cx_animate", data=dict(data, side=side))]
     if "colors" in data:
         parts.append(Part("cx_color", data={"colors": data["colors"], "eot": data["eot"], "side": "mine",
                                             "op": "add_colors" if data.get("add_colors") else "set_colors"}))
     return parts
+
+
+def type_side(game, eff) -> str:
+    """The side for a bare creature-type change ("target creature becomes a Coward until end of turn"): "theirs"
+    when the source or a permanent in play restricts that type ("Cowards can't block Warriors"), else "mine"."""
+    words = "|".join(re.escape(s) for s in eff.data.get("subtypes", ()))
+    if not words:
+        return "mine"
+    rx = re.compile(rf"\b(?:{words})s? (?:can't|don't|doesn't|get -|lose)", re.I)
+    source = getattr(game, "target_source", None)
+    texts = [getattr(getattr(source, "card", source), "oracle", "") or ""]
+    texts += [x.card.oracle or "" for pl in game.players for x in pl.battlefield]
+    return "theirs" if any(rx.search(t) for t in texts) else "mine"

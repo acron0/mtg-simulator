@@ -248,5 +248,20 @@ class AIChoices(Base):
         self.assertIsNot(second, one)
         self.assertIn(second.card.name, ("Plains", "Island", bear.card.name))
 
+    @unittest.skipUnless(DB.exists(), "card database not built")
+    def test_giving_itself_away_is_the_last_mode_chosen(self):
+        from mtgsim import modal
+        solkanar = CardDB(offline=True).get("Sol'Kanar the Tainted")
+        source = self.perm(solkanar, self.a)
+        self.perm(BEAR, self.b)
+        modes = solkanar.triggers[0].modes
+        order = []
+        for _ in range(len(modes)):
+            effects = modal.pick(self.game, self.a, modes, source, least=0)
+            order.append(next(i for i, m in enumerate(modes) if m and effects and m[0] is effects[0]))
+        self.assertEqual(order[-1], 3)          # "Exile ~, then return it under an opponent's control"
+        self.assertEqual(sorted(order), [0, 1, 2, 3])
+
+
 if __name__ == "__main__":
     unittest.main()

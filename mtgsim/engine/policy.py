@@ -318,6 +318,9 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                     return -1
                 total += max(v, 0.0)
                 continue
+            if k == "blink" and e.data.get("opponent"):
+                total -= 5.0       # "return it under an opponent's control": gives the permanent away (#318)
+                continue
             from ..residual_templates import effect_value
             residual_value = effect_value(game, me, e, tgt)
             if residual_value is None:

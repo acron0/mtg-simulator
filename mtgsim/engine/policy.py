@@ -123,6 +123,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
         from ..cx_grammar_bite import choose as bite_choose
         return bite_choose(game, me, eff)
+    if eff.data.get("ref_amount"):     # a target only for an amount ("equal to target creature's power"): the largest
+        return max((x for x in legal if isinstance(x, Permanent)),
+                   key=lambda x: game.x_quantity(me, eff.data["xq"], None, x), default=None)
     if k in removal.KINDS:
         return removal.choose(game, me, eff)
     if k in ("cx_exchange_mark", "cx_exchange"):
@@ -195,6 +198,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return max(theirs if eff.data['power'].startswith('-') else mine, key=perm_value, default=None)
     if k == 'grant_activated':
         return max(mine, key=perm_value, default=None)
+    if k == 'search_plan' and eff.data.get('name_as_target'):
+        from ..search_counted import choose_name_target
+        return choose_name_target(game, me, eff)
     if k == 'blink_next_end':
         return max(mine, key=perm_value, default=None)
     if k == 'relationship_mark':

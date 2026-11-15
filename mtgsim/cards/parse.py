@@ -543,7 +543,7 @@ def _parse_face(data: dict) -> CardDef:
     text = cx_replace.two_player_text(text)
     text = re.sub(r"\bthis (creature|land|spell|enchantment|artifact|permanent|token|vehicle|saga|aura|equipment|class|spacecraft|battle|siege)\b", "~",
                   text, flags=re.I)
-    text = re.sub(r"\b([Pp]rotection from (?:white|blue|black|red|green)) and from (white|blue|black|red|green)\b",
+    text = re.sub(r"\b([Pp]rotection from (?:[A-Za-z]+)) and from ([A-Za-z]+)\b",      # colours, types, subtypes (#326)
                   lambda m: f"{m[1]} and {m[1][0]}rotection from {m[2]}", text)
     text = re.sub(r"(becomes the target of (?:a spell or ability|a spell)), sacrifice it\.", r"\1, sacrifice ~.", text)
     from ..blink import prepare_linked

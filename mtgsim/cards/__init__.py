@@ -261,3 +261,5 @@ from .. import linked_exile as _linked_exile  # noqa: E402
 _EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS
 from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
+from .. import protection_types as _protection_types  # noqa: E402
+KEYWORDS.update(_protection_types.KEYWORDS)

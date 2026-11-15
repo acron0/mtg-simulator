@@ -113,9 +113,18 @@ class PlayMixin:
         if not self.valid_action_targets(p, effects, targets, card):
             return False
         cost = self.cost_of(p, card, assist=False)
+        if card.advanced_rules.get("target_cost"):    # "costs {2} less to cast if it targets a black permanent"
+            from ..cx_static_cost import target_cost
+            cost, targets = target_cost(self, p, card, effects, targets)
         if card.advanced_rules.get("strive"):        # "costs {1}{W} more for each target beyond the first"
             from ..cx_multi_target import strive_cost
             cost, targets = strive_cost(self, p, card, effects, targets, cost)
+        x_fixed = None
+        if "X" in card.mana_cost and any(e.data.get("count_x") for e in effects):   # "Tap X target creatures" (#312)
+            from ..cx_multi_target import x_targets_cost
+            cost, targets, x_fixed = x_targets_cost(self, p, card, effects, targets, cost)
+            if not x_fixed:
+                return False                           # X = 0: no target, nothing to do
         convoked = self.convoke_pool(p)[:self._convoke_k] if card.convoke else []
         assisted = card.improvise or card.delve
         x = 0
@@ -148,7 +157,9 @@ class PlayMixin:
         for c in delved:
             p.graveyard.remove(c)
             p.exile.append(c)
-        if "X" in card.mana_cost and not assisted:     # X: as much as the remaining mana allows
+        if x_fixed is not None:
+            x = x_fixed                                # already in the cost: X is the number of targets
+        elif "X" in card.mana_cost and not assisted:     # X: as much as the remaining mana allows
             while x < 20 and payable([s for s in self.mana_sources(p, spell=card) if s not in plan.exclude], {"generic": x + 1}):
                 x += 1
             if x:
@@ -293,6 +304,7 @@ class PlayMixin:
         if discarded_cost is not None:
             item.discarded_stats = (int(discarded_cost.power or 0), int(discarded_cost.toughness or 0),
                                     discarded_cost.cmc)
+        item.behold_exiled = list(getattr(self, "_add_cost_exiled", ())) if add_cost is not None else []
         if exiled_gy is not None:    # for ("exiled_gy", "power") and friends (Corpse Lunge)
             item.exiled_gy_stats = (int(exiled_gy.power or 0), int(exiled_gy.toughness or 0), exiled_gy.cmc)
         item.bargained = bool(card.bargain) and self.pay_bargain(p, card)

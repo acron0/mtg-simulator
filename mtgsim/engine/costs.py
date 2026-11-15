@@ -346,6 +346,10 @@ class CostsMixin:
             return 0
         if kind == "gy":
             return counting.count(self, p, {"what": spec[1], "zone": "graveyard"}, src)
+        if isinstance(spec[1], str) and spec[1].startswith("other ") and src is not None and not src.is_creature \
+                and isinstance(prev, Permanent) and prev.is_creature:
+            # "it gets +1/+1 for each other creature you control" on an Equipment / Aura trigger: other than it
+            return counting.count(self, p, {"what": spec[1], "zone": "battlefield"}, prev)
         return counting.count(self, p, {"what": spec[1], "zone": "battlefield"}, src)
 
     def gy_move(self, p: Player, eff: Effect, item):

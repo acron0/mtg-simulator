@@ -900,6 +900,9 @@ def _parse_trigger(line: str):
     if once_game:
         line = line[:-len(" This ability triggers only once.")]
     out = _parse_trigger_line(line)
+    if out is None and not (once or once_game):       # "When ~ enters and whenever ..., <body>" (#399)
+        from ..cx_trig_compound import split as _compound
+        out = _compound(line, _parse_trigger)
     if out is not None and once:
         for t in out[0]:
             t.once = True

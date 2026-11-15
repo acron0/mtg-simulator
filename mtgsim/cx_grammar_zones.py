@@ -196,6 +196,10 @@ def card_noun(text: str):
     if m[2]:
         spec["non"] = m[2]
     if m[6]:                    # "creature card with infect" (Corpse Cur): a keyword the card has printed
+        lesser = re.fullmatch(r"lesser (mana value|power|toughness)", m[6])
+        if lesser:              # "with lesser mana value" (Havi): than the creature the trigger is about
+            spec["bound"] = [lesser[1], "less than", ["event", lesser[1]]]
+            return spec
         from .cards.model import KEYWORDS
         if m[6] not in KEYWORDS:
             return None
@@ -214,7 +218,9 @@ def card_noun(text: str):
     return spec
 
 
-def card_fits(card, spec, source=None) -> bool:
+def card_fits(card, spec, source=None, event=None) -> bool:
+    """Whether a card fits a card_noun spec; `source` is the resolving permanent ("~'s power"), `event` the
+    permanent the trigger is about ("with lesser mana value")."""
     def is_type(t):
         return card.is_permanent if t == "permanent" else t.title() in card.types
     if spec["types"] and not any(is_type(t) for t in spec["types"]):
@@ -243,9 +249,10 @@ def card_fits(card, spec, source=None) -> bool:
         stat, comparison, limit = spec["bound"]
         if isinstance(limit, list):
             from .engine.state import Permanent
-            if not isinstance(source, Permanent):
-                return False
-            limit = source.card.cmc if limit[1] == "mana value" else getattr(source, limit[1])
+            ref = event if limit[0] == "event" else source
+            if not isinstance(ref, Permanent):
+                return False            # no such creature (not a trigger about one): nothing qualifies
+            limit = ref.card.cmc if limit[1] == "mana value" else getattr(ref, limit[1])
         value = card.cmc if stat == "mana value" else (getattr(card, stat, 0) or 0)
         if not {"less than": value < limit, "less than or equal to": value <= limit,
                 "equal to": value == limit, "greater than": value > limit,
@@ -393,7 +400,8 @@ def _return_choice_value(game, me, eff, obj):
     if not isinstance(obj, Player):
         return 0.0
     source = getattr(game.target_source, "source", game.target_source)
-    values = sorted((1 + c.cmc for c in obj.graveyard if card_fits(c, eff.data["cx_card"], source)), reverse=True)
+    values = sorted((1 + c.cmc for c in obj.graveyard if card_fits(c, eff.data["cx_card"], source,
+                                                                   event_permanent(game))), reverse=True)
     return sum(values[:eff.amount]) * (1 if obj is me else -1)
 
 
@@ -427,7 +435,18 @@ def grave_cards(game, p, eff):
     owners = [p] if zone == "you" else [game.opponent(p)] if zone == "opp" else list(game.players)
     source = getattr(game.target_source, "source", game.target_source)
     excluded = getattr(source, "front", source) if eff.data.get("other") else None
-    return [c for o in owners for c in o.graveyard if c is not excluded and card_fits(c, eff.data["cx_card"], source)]
+    event = event_permanent(game)
+    return [c for o in owners for c in o.graveyard
+            if c is not excluded and card_fits(c, eff.data["cx_card"], source, event)]
+
+
+def event_permanent(game):
+    """The permanent the trigger being targeted or resolved is about (the creature that died, was sacrificed,
+    ...): the stack item's context, or while a trigger's targets are chosen, Game.trigger_context."""
+    from .engine.state import Permanent, StackItem
+    item = game.target_source
+    ctx = item.context if isinstance(item, StackItem) else getattr(game, "trigger_context", None)
+    return ctx if isinstance(ctx, Permanent) else None
 
 
 @rider(r"for each color, (return up to one target (?:(?:creature|permanent|artifact|enchantment|land|instant|sorcery) )?"
@@ -445,5 +464,26 @@ def each_color(m, inner):
         eff = effects[0]
         eff.data = dict(eff.data, distinct=True, group="cx_each_color")
         out.append(eff)
+    return out
+
+
+def bake_event(effects, subject):
+    """Effects with "with lesser mana value / power / toughness" bounds fixed to the event creature's stats as the
+    trigger queues (last known information: the creature that died or was sacrificed is gone by resolution)."""
+    import dataclasses
+    from .engine.state import Permanent
+    if not isinstance(subject, Permanent) or not any(
+            isinstance(e.data.get("cx_card", {}).get("bound", [None] * 3)[2], list)
+            and e.data["cx_card"]["bound"][2][0] == "event" for e in effects):
+        return effects
+    out = []
+    for e in effects:
+        bound = e.data.get("cx_card", {}).get("bound")
+        if bound and isinstance(bound[2], list) and bound[2][0] == "event":
+            stat = bound[2][1]
+            value = subject.card.cmc if stat == "mana value" else getattr(subject, stat)
+            spec = dict(e.data["cx_card"], bound=[bound[0], bound[1], value])
+            e = dataclasses.replace(e, data=dict(e.data, cx_card=spec))
+        out.append(e)
     return out
 

@@ -380,7 +380,8 @@ class EffectsMixin:
             for trig in other.triggers:
                 if trig.event == "sacrifice" and (card_matches(perm.card, trig.filter) if not trig.filter.startswith("another ") else
                                                   other is not perm and card_matches(perm.card, "a " + trig.filter[8:])):
-                    self.queue_trigger(p, trig.effects, other, other.card.name)
+                    from ..cx_grammar_zones import bake_event
+                    self.queue_trigger(p, bake_event(trig.effects, perm), other, other.card.name)
         self.fire(p, "sacrificed", perm)     # "whenever a player sacrifices a <desc>" (cx_events)
         self.dies(perm, counter_sources=counter_sources) if perm.is_creature else self.leave_battlefield(perm, "graveyard")
 

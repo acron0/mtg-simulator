@@ -126,9 +126,10 @@ EFFECT_PATTERNS = [
     # The rest of #318: a return under an opponent's control or
     # with no control clause (its owner's, front face up: the saga back faces' "(front face up)" is reminder text),
     # and "tapped and attacking". Tried after the shapes above.
-    # ("Exile it, then ..." stays unread: what "it" names depends on the trigger event, see #458.)
-    (r"exile (~|him|her)(?:, then| and then) return (?:it|him|her) " + _RETURN2,
-     lambda m: _general("self", m)),
+    # "Exile it, then return it": "it" is target prev, which cx_trig_self_it binds per trigger head (#458): the
+    # creature an ally trigger is about, ~ itself under a self head
+    (r"exile (~|it|him|her)(?:, then| and then) return (?:it|him|her) " + _RETURN2,
+     lambda m: _general("prev" if m[1].lower() == "it" else "self", m)),
     (r"exile (?:up to (one|two) )?(another |other )?target (.+?)(?:, then| and then) return "
      r"(?:it|him|her|that card|those cards|them) " + _RETURN2,
      lambda m: _general(m, None)),
@@ -307,4 +308,40 @@ def choose_target(game, me, eff, mine, theirs):
         harmless = [x for x in mine if not x.card.is_token and x.owner is me]
         return min(harmless, key=perm_value, default=None)
     return None
+
+
+def blink_all(game, p, eff, perms, item=None):
+    """Exile every permanent in perms, then return them all at once as new objects (one entry batch: each sees
+    the others enter), or at the next end step for a delayed blink. A token is gone; an optional ("you may")
+    blink skips what would be lost (a token, or a permanent that would return to someone else)."""
+    from .backlog_templates import entry_batch
+    from .cards.model import Effect
+    from .engine.state import Permanent
+    data = eff.data
+    exiled = []
+    for target in perms:
+        if not isinstance(target, Permanent) or target not in target.controller.battlefield:
+            continue
+        owner, card = target.owner, target.front
+        back = p if data.get("yours") else game.opponent(p) if data.get("opponent") else owner
+        if data.get("optional") and (card.is_token or back is not p):
+            continue
+        if game.leave_battlefield(target, "exile") and not card.is_token and card in owner.exile:
+            exiled.append((owner, card, back))
+    if data.get("delayed"):
+        for owner, card, back in exiled:
+            game.delayed_end_step.append((back, [Effect("return_exile_ref", data=dict(data))],
+                                          item.source if item else None, (owner.exile, owner.exile.reference(card))))
+        return
+    # "tapped and attacking" attacks only during combat; otherwise it just enters tapped (rule 506.3)
+    attacking = bool(data.get("attacking")) and game.step in ("declare_attackers", "declare_blockers")
+    with entry_batch(game):
+        for owner, card, back in exiled:
+            if card not in owner.exile:
+                continue
+            owner.exile.remove(card)
+            face = entry_face(card, data)
+            game.enter_battlefield(back, face, attacking, tapped=bool(data.get("tapped")),
+                                   counters=entry_counters(data), physical_card=card if face is not card else None)
+            game.log(f"{card.name} returns to the battlefield" + (" transformed" if face is not card else ""), p)
 

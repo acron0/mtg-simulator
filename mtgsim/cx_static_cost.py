@@ -314,6 +314,10 @@ def _times(game, p, rule, source, card) -> int:
 
 def _applying(game, p, card):
     """(sign, amount, colored_only, times) for every cost rule that reaches this spell."""
+    for rule in _temp_rules(game, p, card):         # "the next Dragon spell you cast costs {2} less"
+        yield -1, rule["amount"], False, 1
+        if rule["once"]:
+            break
     for rule in card.advanced_rules.get("target_cost", ()):
         if _targets_fit(game, p, card, rule["target"]):
             yield rule["sign"], rule["amount"], rule.get("colored_only", False), 1
@@ -343,7 +347,7 @@ def adjust(game, p, card, cost: dict, increase: int = 0, reduction: int = 0) -> 
     Game.cost_of's older paths (taxes and "or pay {N}" costs; Affinity, "costs {1} less for each ...")."""
     mods = []
     if not card.is_land and (card.advanced_rules.get("self_cost") or card.advanced_rules.get("target_cost")
-                             or _any_sources(game)):
+                             or _any_sources(game) or getattr(game, "temp_cost_rules", None)):
         mods = list(_applying(game, p, card))
     cost = dict(cost)
     cost["generic"] = cost.get("generic", 0) + increase
@@ -462,3 +466,49 @@ def target_cost(game, p, card, effects, targets):
             if _costs.spell_plan(game, p, card, new) is not None:
                 return new, trial
     return cost, targets
+
+
+# ---------------------------------------------------------------------------
+# One-shot discounts for a group of spells (#341 slice 2)
+#
+#     The next Dragon spell you cast costs {2} less to cast.               (once, until used)
+#     The next noncreature spell you cast this turn costs {1} less to cast. (once, this turn)
+#     Artifact spells you cast this turn cost {1} less to cast.            (every one, this turn)
+#
+# The kind cx_temp_cost adds a rule to game.temp_cost_rules; _applying reads it like a permanent's cost_mod; a
+# "next" rule is spent by the first matching spell its player casts (spell_cast, from Game.cast).
+# ---------------------------------------------------------------------------
+
+def _temp_effect(m, once: bool):
+    from .cards.model import NO_MATCH, Effect     # NO_MATCH: refuse (None would drop the sentence)
+    group = _group(m["g"].strip() + (" spell you cast" if once else " spells you cast"))
+    amount = _amount(m["amt"])
+    if group is None or group[0] != "you" or group[2] is not None or group[3] is not None or "X" in amount:
+        return NO_MATCH
+    return Effect("cx_temp_cost", data={"specs": group[1], "amount": amount, "once": once,
+                                       "this_turn": bool(m["turn"]) or not once})
+
+
+EFFECT_PATTERNS = [
+    (r"the next (?P<g>[\w ,-]+?) spell you cast(?P<turn> this turn)? costs (?P<amt>(?:\{(?:\d+|[WUBRG])\})+) less "
+     r"to cast", lambda m: _temp_effect(m, True)),
+    (r"(?P<g>[\w ,-]+?) spells you cast(?P<turn> this turn) cost (?P<amt>(?:\{(?:\d+|[WUBRG])\})+) less to cast",
+     lambda m: _temp_effect(m, False)),
+]
+SUBS: list = []
+
+
+def _temp_rules(game, p, card):
+    for r in getattr(game, "temp_cost_rules", ()):
+        if r["player"] is p and (r["turn"] is None or r["turn"] == game.turn) and \
+                (not r["specs"] or any(_spell_ok(card, s) for s in r["specs"])):
+            yield r
+
+
+def spell_cast(game, p, card) -> None:
+    """A spell was cast: spend the "next ... spell" discounts it used, drop the ones whose turn is over."""
+    rules = getattr(game, "temp_cost_rules", None)
+    if not rules:
+        return
+    used = next((r for r in _temp_rules(game, p, card) if r["once"]), None) if not card.is_land else None
+    game.temp_cost_rules = [r for r in rules if r is not used and (r["turn"] is None or r["turn"] == game.turn)]

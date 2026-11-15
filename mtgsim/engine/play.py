@@ -358,6 +358,8 @@ class PlayMixin:
                         self.queue_trigger(p, trig.effects, perm, perm.card.name, modes=trig.modes,
                                            context=item)
             getattr(self, "next_discount", {}).pop(p.name, None)
+            from ..cx_static_cost import spell_cast as temp_discounts_spent
+            temp_discounts_spent(self, p, card)        # "the next Dragon spell you cast costs {2} less"
             from ..residual_templates import on_spell_cast
             on_spell_cast(self, p, item)
             copies.on_cast(self, p, item)

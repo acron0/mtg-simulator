@@ -864,9 +864,9 @@ class CostsMixin:
         from ..residual_templates import life_locked
         if life_locked(p) and (card.extra_life_cost or alt is not None and alt.life):
             return False
-        if alt is not None and alt.life and p.life <= alt.life:
+        if alt is not None and alt.life and p.life < alt.life:      # CR 119.4 (#467)
             return False
-        if card.extra_life_cost and p.life <= card.extra_life_cost:
+        if card.extra_life_cost and p.life < card.extra_life_cost:
             return False
         if card.extra_discard and not card.discard_or_pay and self.spare_cards(p, card) < card.extra_discard:
             return False

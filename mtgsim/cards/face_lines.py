@@ -486,6 +486,13 @@ def _face_land_and_mana_lines(st, line):
         if re.fullmatch(r"~ enters tapped if it's not your turn\.", line):
             extra["tapped_condition"] = "not_your_turn"
             return None
+        from ..mana_count import parse_conditional
+        cond_mana = parse_conditional(line)
+        if cond_mana:       # "{T}: Add {C}. If you control an Urza's Mine and ..., add {C}{C} instead." (#321)
+            produces |= {cond_mana[0]}
+            extra["mana_amount"] = max(cond_mana[1], extra.get("mana_amount", 1))
+            extra["mana_dyn"] = cond_mana[2]
+            return None
         m = re.fullmatch(r"\{T\}: Add ([^.]+)\.(?: ~ deals 1 damage to you\.)?", line)
         if m:
             cols, amount = _parse_mana_ability(m[1])
@@ -1260,4 +1267,5 @@ def _face_ability_lines(st, line):
 from .. import cx_grammar  # noqa: E402
 from ..cx_night_flash import parse_line as _night_flash_line  # noqa: E402
 from ..cx_night_aura import parse_line as _night_aura_line  # noqa: E402
-_FACE_LINE_PARSERS = (_night_aura_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)
+from ..named_cards import parse_line as _named_cards_line  # noqa: E402
+_FACE_LINE_PARSERS = (_named_cards_line, _night_aura_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)

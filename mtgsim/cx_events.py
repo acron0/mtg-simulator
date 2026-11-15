@@ -754,6 +754,8 @@ def observe(game, p, event, source=None, context=None, subject=None):
                          any(e.target in ("that_player", "that_controller") for e in trig.effects))
             if ctx is False:
                 continue
+            if any(e.data.get("ref_subject") for e in trig.effects) and isinstance(source or subject, Permanent):
+                ctx = source if source is not None else subject      # "its controller": the event's subject (#315)
             if spec.get("batch") or spec.get("kind") in ("gain_first",):
                 key = ("ev_batch", i)
                 stamp = (game.turn, game.step, getattr(game, "resolving_item", None) and id(game.resolving_item))

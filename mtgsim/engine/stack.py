@@ -247,6 +247,8 @@ class StackMixin:
                                if e.data.get("xq", ("",))[0] == "spell" or e.target == "that_controller"
                                or e.data.get("who") == "spell_controller" else e
                                for e in effects]
+                from ..cx_grammar_zones import bake_event
+                effects = bake_event(effects, subject)      # "with lesser mana value": the event creature's (LKI)
                 if subject is not None and any(e.data.get("subject_power") for e in effects):
                     effects = [dataclasses.replace(e, amount=max(0, subject.power)) if e.data.get("subject_power")
                                else e for e in effects]
@@ -272,7 +274,7 @@ class StackMixin:
         if source is not None:      # Role tokens, Auras and Equipment give their creature triggers
             # "its controller" in "Whenever enchanted creature ..., its controller ..." is the creature's (#361)
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
-                                                for e in effects) else context
+                                                or e.data.get("ref_subject") for e in effects) else context
             for equipment in source.equipment:
                 for trig in equipment.card.host_triggers:
                     if trig.event == event:
@@ -456,6 +458,7 @@ class StackMixin:
             if kind == "warp":
                 perm.warped = True
             perm.was_cast = True
+            perm.exiled_to_hand += getattr(item, "behold_exiled", [])     # "behold ... and exile it" (#342)
             perm.cast_turn = getattr(item, "cast_turn", None)
             perm.kicks = getattr(item, "kicks", 0)
             perm.emerged_toughness = getattr(item, "emerged_toughness", None)
@@ -489,6 +492,7 @@ class StackMixin:
         targeted = [(e, t) for e, t in zip(item.effects, item.targets)        # a list with nobody chosen: no target
                     if e.target in TARGETED and not (t is None and e.data.get("optional_target"))
                     and not e.data.get("chosen")          # a choice on resolution, not a target (#360)
+                    and not e.data.get("resolves_anyway")  # "This ability still resolves if its target becomes illegal"
                     and not (e.target == "multi" and not t)]
         with self.targeting(item):
             item.resolved = not (targeted and all(not (self.legal_target(p, e, t) if e.target != "multi" else
@@ -644,6 +648,8 @@ class StackMixin:
                 item.source.counters.get("charge", 0) >= int(c[8:])
         if c == "paid":
             return bool(getattr(item, "gate_paid", False))
+        if c in ("flip_won", "flip_lost"):         # the last coin flip of this ability (never flipped: neither)
+            return getattr(item, "flip_result", None) is (c == "flip_won")
         if c == "unpaid":                          # the other side of a coin flip
             return not getattr(item, "gate_paid", False)
         if c == "harnessed":

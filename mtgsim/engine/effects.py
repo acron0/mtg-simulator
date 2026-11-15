@@ -305,8 +305,10 @@ class EffectsMixin:
             self.leave_battlefield(a, "graveyard")
         self.fire(controller, "leaves", perm)
         returning, perm.exiled_cards = perm.exiled_cards, []
+        refs = getattr(perm, "exiled_refs", {})
         for card, card_owner in returning:
-            if card in card_owner.exile:
+            ref = refs.get(id(card))
+            if (ref.find(card_owner.exile) is not None) if ref is not None else card in card_owner.exile:
                 card_owner.exile.remove(card)
                 self.log(f"{card.name} returns from exile", card_owner)
                 self.enter_battlefield(card_owner, card)
@@ -380,7 +382,8 @@ class EffectsMixin:
             for trig in other.triggers:
                 if trig.event == "sacrifice" and (card_matches(perm.card, trig.filter) if not trig.filter.startswith("another ") else
                                                   other is not perm and card_matches(perm.card, "a " + trig.filter[8:])):
-                    self.queue_trigger(p, trig.effects, other, other.card.name)
+                    from ..cx_grammar_zones import bake_event
+                    self.queue_trigger(p, bake_event(trig.effects, perm), other, other.card.name)
         self.fire(p, "sacrificed", perm)     # "whenever a player sacrifices a <desc>" (cx_events)
         self.dies(perm, counter_sources=counter_sources) if perm.is_creature else self.leave_battlefield(perm, "graveyard")
 

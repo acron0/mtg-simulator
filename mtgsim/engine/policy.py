@@ -184,6 +184,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return max(theirs if eff.data['power'].startswith('-') else mine, key=perm_value, default=None)
     if k == 'grant_activated':
         return max(mine, key=perm_value, default=None)
+    if k == 'blink':
+        from ..blink import choose_target
+        return choose_target(game, me, eff, mine, theirs)
     if k == 'blink_next_end':
         return max(mine, key=perm_value, default=None)
     if k == 'relationship_mark':

@@ -114,6 +114,9 @@ def choose_list(game, me, eff) -> tuple:
     side = pick.controller if isinstance(pick, Permanent) else pick
     pool = [x for x in game.legal_targets(me, probe)
             if (x.controller if isinstance(x, Permanent) else x) is side]
+    if probe.kind == "blink":         # not tokens (gone for good) or what gains nothing from re-entering (#318)
+        from .blink import worth_blinking
+        pool = [x for x in pool if worth_blinking(me, probe, x)]
     return tuple(sorted(pool, key=lambda x: -perm_value(x) if isinstance(x, Permanent) else 0))
 
 

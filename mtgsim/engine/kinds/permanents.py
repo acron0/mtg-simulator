@@ -151,16 +151,20 @@ def blink(game, p, eff, target, item=None, **_):
         return
     from ...blink import entry_counters, entry_face
     owner, card = target.owner, target.front
+    back = p if eff.data.get("yours") else game.opponent(p) if eff.data.get("opponent") else owner
+    if eff.data.get("optional") and (card.is_token or back is not p):
+        return              # "you may exile it, then return it": declined when the token or the permanent is lost
     if not game.leave_battlefield(target, "exile") or card.is_token or card not in owner.exile:
         return
-    back = p if eff.data.get("yours") else owner
     if eff.data.get("delayed"):
         game.delayed_end_step.append((back, [Effect("return_exile_ref", data=dict(eff.data))],
                                       item.source if item else None, (owner.exile, owner.exile.reference(card))))
         return
     owner.exile.remove(card)
     face = entry_face(card, eff.data)
-    game.enter_battlefield(back, face, tapped=bool(eff.data.get("tapped")),
+    # "tapped and attacking" attacks only during combat; otherwise it just enters tapped (rule 506.3)
+    attacking = bool(eff.data.get("attacking")) and game.step in ("declare_attackers", "declare_blockers")
+    game.enter_battlefield(back, face, attacking, tapped=bool(eff.data.get("tapped")),
                            counters=entry_counters(eff.data),
                            physical_card=card if face is not card else None)
     game.log(f"{card.name} returns to the battlefield" + (" transformed" if face is not card else ""), p)

@@ -65,7 +65,12 @@ class Counters(dict):
         if key == "+1/+1" and value > old and perm in perm.controller.battlefield:
             game = getattr(perm.controller, "_game", None)
             if game is not None:
-                game.fire(perm.controller, "p1_added", perm)
+                saved = getattr(game, "event_amount", None)
+                game.event_amount = value - old         # "that many": the counters just put on it
+                try:
+                    game.fire(perm.controller, "p1_added", perm)
+                finally:
+                    game.event_amount = saved
 
     def __delitem__(self, key):
         old = self.get(key, 0)

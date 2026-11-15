@@ -123,6 +123,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
         from ..cx_grammar_bite import choose as bite_choose
         return bite_choose(game, me, eff)
+    if eff.data.get("ref_amount"):     # a target only for an amount ("equal to target creature's power"): the largest
+        return max((x for x in legal if isinstance(x, Permanent)),
+                   key=lambda x: game.x_quantity(me, eff.data["xq"], None, x), default=None)
     if k in removal.KINDS:
         return removal.choose(game, me, eff)
     if k in ("cx_exchange_mark", "cx_exchange"):
@@ -195,6 +198,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return max(theirs if eff.data['power'].startswith('-') else mine, key=perm_value, default=None)
     if k == 'grant_activated':
         return max(mine, key=perm_value, default=None)
+    if k == 'search_plan' and eff.data.get('name_as_target'):
+        from ..search_counted import choose_name_target
+        return choose_name_target(game, me, eff)
     if k == 'blink_next_end':
         return max(mine, key=perm_value, default=None)
     if k == 'relationship_mark':
@@ -444,7 +450,9 @@ def respond(game: Game, me: Player):
     protect = regeneration.respond(game, me)
     if protect is not None:
         return protect
-    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)}
+    from ..cx_delayed import pact_affordable
+    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)}
     top = game.stack[-1] if game.stack else None
     if top is not None:
         if top.controller is me:
@@ -571,7 +579,9 @@ def respond_extras(game: Game, me: Player):
         if game.step == "declare_blockers":
             return combat_pump(game, me)
         return None
-    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)]
+    from ..cx_delayed import pact_affordable
+    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)]
     if game.step == "declare_attackers" and game.attackers:
         flash_pw = [c for c in options if c.is_planeswalker]
         if flash_pw:

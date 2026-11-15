@@ -44,11 +44,15 @@ class BattlefieldMixin:
     def exile_until_leaves(self, src: Permanent, perms: list):
         """Exile perms until src leaves the battlefield (Seam Rip, Pinnacle Starcage)."""
         for x in perms:
-            owner, card, token = x.controller, x.front, x.front.is_token
+            # the owner's exile, and the exact card exiled: it returns to its owner, and not once it left exile (#347)
+            owner, card, token = x.owner, x.front, x.front.is_token
             if self.leave_battlefield(x, "exile"):
                 self.log(f"exiles {x.card.name} until {src.card.name} leaves", src.controller)
-                if not token:
+                if not token and card in owner.exile:
                     src.exiled_cards.append((card, owner))
+                    if not hasattr(src, "exiled_refs"):
+                        src.exiled_refs = {}
+                    src.exiled_refs[id(card)] = owner.exile.reference(card)
 
     def enter_battlefield(self, p: Player, card: CardDef, tapped_attacking: bool = False, x: int = 0,
                           *, tapped: bool = False, counters: dict | None = None,
@@ -73,6 +77,7 @@ class BattlefieldMixin:
         perm.front.generation += 1
         perm.front.zone = perm
         perm.entered_turn = self.turn
+        perm.entered_from = source_zone        # "enters from a graveyard" (cx_events)
         perm.rules_timestamp = self.next_effect_timestamp()
         from ..cx_type_grants import changed as type_grants_changed
         type_grants_changed(self, perm)         # a creature type granted by a static ability (layer 4)

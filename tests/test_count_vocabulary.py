@@ -109,7 +109,7 @@ class RealCards(unittest.TestCase):
         for name in ("Regal Force", "Take Heart", "Lucid Dreams", "Calamitous Cave-In", "Wandering Stream",
                      "Skred", "Conifer Wurm"):     # Skred / Conifer Wurm: snow counts since #536
             self.assertEqual(card_coverage(db.get(name)).status, "full", name)       # now through readings that count
-        for name in ("Spite of Mogis", "Herd Migration", "Golden Ratio"):
+        for name in ("Spite of Mogis", "Herd Migration"):           # Golden Ratio: distinct powers since #337
             self.assertEqual(card_coverage(db.get(name)).status, "partial", name)    # no reading counts these yet
 
 

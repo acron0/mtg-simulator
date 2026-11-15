@@ -1091,6 +1091,10 @@ class HeuristicAI:
 
     def _sac_cost(self, game: Game, me: Player, card: CardDef) -> float:
         """What the additional cost "sacrifice an artifact or creature" gives up (cheapest candidate)."""
+        if getattr(card, "advanced_rules", None) and hasattr(game, "mana_sources"):
+            from .cx_spell_costs import ai_cost, alternatives      # "As an additional cost to cast ~, ..." (#342)
+            if alternatives(card):
+                return ai_cost(game, me, card)
         if not getattr(card, "extra_sacrifice", "") or not hasattr(game, "extra_sac_candidates"):
             return 0.0
         cands = game.extra_sac_candidates(me, card)

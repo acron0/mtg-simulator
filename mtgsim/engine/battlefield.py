@@ -222,6 +222,7 @@ class BattlefieldMixin:
             from ..batch1_templates import curse_event
             curse_event(self, p, 'curse_creature_enters')
         self._residual_source_index = None
+        type_grants_changed(self, perm)         # again, now that it's on the battlefield: its own group grants
         if not card.is_land:
             p.entered_nonland_turn += 1
         if card.turn_creature and p is self.active:

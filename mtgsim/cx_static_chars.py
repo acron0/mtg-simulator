@@ -161,6 +161,9 @@ def parse_line(line: str, st) -> bool:
     m = re.fullmatch(r"~ is also (?:an? )?((?:[A-Z][\w'-]*)(?:,? (?:and )?[A-Z][\w'-]*)*)", s)
     if m:
         return _also(m[1], st)
+    if s.strip() == "~ is every creature type" and "Creature" in st.types:
+        st.extra["changeling"] = True       # a characteristic-defining ability, like changeling (rule 604.3)
+        return True
     if s == "~ is all colors":
         if st.extra.get("color_override") not in (None, frozenset("WUBRG")):
             return False
@@ -174,6 +177,18 @@ def parse_line(line: str, st) -> bool:
     for phrase in _phrases(rest):
         if re.fullmatch(r"(?:it )?loses? all (?:other )?abilities", phrase):
             ops.append(("lose_all",))       # layer 6 (slice 3): "loses all other abilities" keeps this line's grants
+            continue
+        if re.fullmatch(r"(?:is|are) every creature type", phrase):
+            ops.append(("all_creature_types",))     # layer 4: every creature type (the view's changeling flag)
+            continue
+        kws = re.fullmatch(r"(loses?|can't have or gain) (.+)", phrase)
+        if kws and not kws[2].startswith("all "):
+            from .cx_grammar import keyword_list
+            found = keyword_list(kws[2])
+            if not found:
+                return False
+            # layer 6: "loses flying" (a later grant wins), "can't have or gain flying" (nothing grants it)
+            ops += [("lock_kw" if kws[1].startswith("can't") else "remove_kw", k) for k in found]
             continue
         if not re.match(r"(?:is|are)\b", phrase):
             others.append(phrase)           # the grammar's (gets, has, can't ...)
@@ -207,7 +222,8 @@ def parse_line(line: str, st) -> bool:
     rules = st.extra.setdefault("advanced_rules", {})
     rules[key] = tuple(rules.get(key, ())) + ((dict(spec), tuple(ops)) if scope == "group" else tuple(ops),)
     pt = next((op for op in ops if op[0] == "set_base"), None)
-    if scope == "host" and st.extra.get("aura") and (("lose_all",) in ops or pt and (pt[1] or 0) <= 1 and not others):
+    removes = any(op[0] in ("lose_all", "remove_kw", "lock_kw") for op in ops)
+    if scope == "host" and st.extra.get("aura") and (removes or pt and (pt[1] or 0) <= 1 and not others):
         st.extra["gate_hostile"] = True     # "Enchanted creature is a Turtle with base power and toughness 0/1"
     return True
 
@@ -307,6 +323,12 @@ def effects(perm) -> list:
                 out.append(ContinuousEffect(uid, perm, "set_base", stamp, op[1], op[2], source=source))
             elif kind == "lose_all":
                 out.append(ContinuousEffect(uid, perm, "lose_all", stamp, source=source))
+            elif kind in ("remove_kw", "lock_kw"):
+                out.append(ContinuousEffect(uid, perm, "remove" if kind == "remove_kw" else "lock", stamp,
+                                            keyword=op[1], source=source))
+            elif kind == "all_creature_types":
+                if creature:
+                    out.append(ContinuousEffect(uid, perm, "all_creature_types", stamp, source=source))
             elif kind in ("add_types", "set_types"):
                 subs = frozenset(op[2]) if kind == "set_types" else None
                 out.append(ContinuousEffect(uid, perm, kind, stamp, source=source, types=frozenset(op[1]),

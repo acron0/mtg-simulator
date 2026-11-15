@@ -65,7 +65,9 @@ def choose(game, p, perm, card):
     exclude = kind.partition(":")[2] if kind.startswith("color_other:") else ""
     protect = card.advanced_rules.get("chosen_protection")
     anthem = any(t[0].startswith("chosen_color") for t in card.anthem_sub)
-    color = _theirs(game, p) if protect else _creature_color(game, p, card) if anthem else _own_need(game, p, exclude)
+    from .cx_trig_cast import hostile_choice
+    color = _theirs(game, p) if protect or hostile_choice(card) else _creature_color(game, p, card) if anthem \
+        else _own_need(game, p, exclude)
     perm.chosen_color = color
     oracle = card.oracle or ""
     produces = set(re.findall(r"Add \{([WUBRGC])\}", oracle))

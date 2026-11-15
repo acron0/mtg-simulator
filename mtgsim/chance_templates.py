@@ -98,7 +98,7 @@ def _seq(m):
 
 
 SUBS = [
-    (re.compile(r"(?:(that player) flips|flip) a coin\. ((?:if|when) (?:you|they) (?:win|lose) the flip, .+?)\.?$",
+    (re.compile(r"(?:^|(?<=\. )|(?<=if you do, ))(?:(that player) flips|flip) a coin\. ((?:if|when) (?:you|they) (?:win|lose) the flip, .+?)\.?$",
                 re.I | re.S), _fold_seq),
     # "Clash with an opponent. If you win, <X>." (also "defending player", "If you won")
     (re.compile(r"clash with (?:an opponent|defending player|target opponent)\. "

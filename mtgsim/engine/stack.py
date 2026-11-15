@@ -641,6 +641,8 @@ class StackMixin:
                 item.source.counters.get("charge", 0) >= int(c[8:])
         if c == "paid":
             return bool(getattr(item, "gate_paid", False))
+        if c in ("flip_won", "flip_lost"):         # the last coin flip of this ability (never flipped: neither)
+            return getattr(item, "flip_result", None) is (c == "flip_won")
         if c == "unpaid":                          # the other side of a coin flip
             return not getattr(item, "gate_paid", False)
         if c == "harnessed":

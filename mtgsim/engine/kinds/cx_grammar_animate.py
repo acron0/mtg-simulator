@@ -20,7 +20,8 @@ def animate(game, p, eff, target, **_):
         game.add_continuous_effect(target, "add_types", types=set(d["types"]), until_eot=eot)
         return
     if "pt" in d:
-        target.animated = Activated("animate", {}, d["pt"][0], d["pt"][1], frozenset(d.get("keywords", ())),
+        pt = (target.card.cmc, target.card.cmc) if d.get("pt_mv") else d["pt"]      # "each equal to its mana value"
+        target.animated = Activated("animate", {}, pt[0], pt[1], frozenset(d.get("keywords", ())),
                                     subtypes=frozenset(d["subtypes"]), text="" if eot else "permanent")
     types, subtypes = set(d["types"]), set(d["subtypes"])
     if d.get("addition"):

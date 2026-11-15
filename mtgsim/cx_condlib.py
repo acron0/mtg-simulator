@@ -1027,6 +1027,10 @@ def check(game, p, code: str, item=None, source=None, prev=None):
     if kind == "prev_is":
         from .engine.state import Permanent
         obj = prev if isinstance(prev, Permanent) else getattr(item, "context", None)
+        if prev is None and obj is None and item is not None:
+            from .cx_delayed import _fresh       # "put an artifact card onto the battlefield. If it's an Equipment, ..."
+            fresh = _fresh(game, item)
+            obj = fresh[-1] if fresh else None
         spec = args[0]
         if prev is None and not isinstance(obj, Permanent):
             prev = getattr(item, "exiled_card", None)

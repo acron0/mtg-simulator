@@ -416,7 +416,13 @@ class AbilitiesMixin:
         if x is not None and act.cost.get("X"):        # X paid as mana: effects see it at full size
             preview = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2)
                        if e.data.get("x") else e for e in preview]
-        targets = self.auto_targets(p, preview, perm) if targets is None else list(targets)
+        auto = targets is None
+        targets = self.auto_targets(p, preview, perm) if auto else list(targets)
+        if auto and x is not None and act.cost.get("X"):           # "{X}, {T}: Tap X target lands": X = the targets
+            from ..cx_multi_target import x_count
+            n = x_count(preview, targets)
+            if n is not None and n != x:
+                return n > 0 and self.activate_ability(p, perm, idx, targets, x=n, counter_choices=counter_choices)
         if not self.valid_action_targets(p, act.effects, targets, perm):
             return False
         from ..cx_abil_mana import AbilityPayment

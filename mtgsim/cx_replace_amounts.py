@@ -123,6 +123,14 @@ def _parse_one(line: str):
 
 def face_line(st, line):
     """Face-line parser (put first in cards/parse.py's list by cards/__init__.py)."""
+    tok = parse_token_line(line)
+    if tok is not None:
+        rules = st.extra.setdefault("advanced_rules", {})
+        if tok[0] == "double_all":
+            rules["token_double_all"] = True
+        else:
+            rules.setdefault("token_adders", []).append(tok[1])
+        return None
     got = parse_mod(line)
     if got is None:
         return line
@@ -179,3 +187,85 @@ def modify(perm, name: str, amount: int, extra_add: int = 0) -> int:
                 else:
                     muls *= mod["n"]
     return max(0, (amount + adds) * muls) if amount > 0 else amount
+
+# ---------------------------------------------------------------------------------------------------------------
+# Tokens (#407, second slice)
+#
+#     If one or more tokens would be created, twice that many of those tokens are created instead.   (Primal Vigor)
+#     If one or more artifact tokens would be created under your control, those tokens plus an additional 1/1
+#     colorless Thopter artifact creature token with flying are created instead.                (Stridehangar Automaton)
+#     If you would create one or more Treasure tokens, instead create those tokens plus an additional Treasure token.
+#
+# Doublings stay where the engine counts tokens (``token_multiplier``, used by every path that already doubled for
+# ``token_double``); Primal Vigor's "any player" doubling is ``token_double_all``. An adder is
+# ``advanced_rules["token_adders"]``: (kind filter, the extra token's Effect), applied once per creation event,
+# an entry batch or a lone token entering outside one (``tokens_created``). The extra token is itself created
+# through the doublers, which gives the affected player's best order: add, then double ((n + 1) * 2).
+# ---------------------------------------------------------------------------------------------------------------
+
+_TOKEN_KIND = r"(?:(?P<what>artifact|creature|Treasure|Food|Clue|Map) )?"
+_ADDER = [
+    re.compile(rf"If one or more {_TOKEN_KIND}tokens would be created under your control, those tokens plus "
+               rf"(?:an additional |a |an )(?P<extra>.+? token(?: with [^.]+?)?) are created instead\."),
+    re.compile(rf"If you would create one or more {_TOKEN_KIND}tokens, instead create those tokens plus "
+               rf"(?:an additional |a |an )(?P<extra>.+? token(?: with [^.]+?)?)\."),
+]
+
+
+def parse_token_line(line: str):
+    """("double_all", None) | ("adder", (what, Effect)) | None."""
+    if line == "If one or more tokens would be created, twice that many of those tokens are created instead.":
+        return "double_all", None
+    for rx in _ADDER:
+        m = rx.fullmatch(line)
+        if not m:
+            continue
+        from .cards import _parse_effects
+        extra = m["extra"]
+        effects, bad = _parse_effects(f"Create {'an' if extra[0].lower() in 'aeiou' else 'a'} {extra}.")
+        if bad or len(effects) != 1 or effects[0].kind not in ("token", "cx_token") or effects[0].amount != 1 or \
+                effects[0].cond or effects[0].target != "none":
+            return None
+        return "adder", ((m["what"] or "").lower(), effects[0])
+    return None
+
+
+def token_multiplier(game, p) -> int:
+    """How many tokens p gets for each one an effect would create: 2 for every doubling replacement that applies."""
+    own = sum(bool(x.card.token_double) for x in p.battlefield if not x.abilities_suppressed)
+    players = game.players if game is not None else [p]
+    anyone = sum(bool(x.card.advanced_rules.get("token_double_all")) for pl in players for x in pl.battlefield
+                 if not x.abilities_suppressed)
+    return 2 ** (own + anyone)
+
+
+def _kind_ok(what: str, perm) -> bool:
+    if not what:
+        return True
+    if what in ("artifact", "creature"):
+        return what.capitalize() in perm.card.types
+    return what.lower() == (getattr(perm.card, "token_kind", "") or "").lower() or what in perm.card.subtypes
+
+
+def tokens_created(game, perms) -> None:
+    """One creation event's tokens just entered: each controller's matching adders create their extra token once."""
+    if getattr(game, "_token_adding", False):
+        return                  # the extra tokens are part of the same event
+    by_player = {}
+    for perm in perms:
+        if getattr(perm.card, "is_token", False) and perm in perm.controller.battlefield:
+            by_player.setdefault(id(perm.controller), (perm.controller, []))[1].append(perm)
+    if not by_player:
+        return
+    game._token_adding = True
+    try:
+        for p, made in by_player.values():
+            for source in list(p.battlefield):
+                if source.abilities_suppressed:
+                    continue
+                for what, extra in source.card.advanced_rules.get("token_adders", ()):
+                    if any(_kind_ok(what, x) for x in made):
+                        game.resolve(p, extra, None, None)
+                        game.log(f"{source.card.name} adds a token", p)
+    finally:
+        game._token_adding = False

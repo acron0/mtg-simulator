@@ -411,7 +411,8 @@ def create(game, who, eff_data: dict, n: int):
         card = eff_data["card"]
         if eff_data.get("xq_size"):         # "an X/X ... token, where X is ...": resolve put X in power/toughness
             card = dataclasses.replace(card, power=eff_data["power"], toughness=eff_data["toughness"])
-        count = n * 2 ** sum(bool(x.card.token_double) for x in who.battlefield if not x.abilities_suppressed)
+        from .cx_replace_amounts import token_multiplier
+        count = n * token_multiplier(game, who)      # doubling replacements (#407)
         attacking = eff_data["attacking"] and game.step in ("declare_attackers", "declare_blockers")
         with entry_batch(game):
             for _ in range(count):

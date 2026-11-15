@@ -256,5 +256,210 @@ class Strive(Base):
                 self.assertEqual(card_coverage(db.get(name)).status, "full")
 
 
+class Lists391(Base):
+    """"and/or" nouns, player lists and list subjects with bare verbs (#391 slice D)."""
+    def test_and_or_noun_is_one_object_of_either_type(self):
+        consign = parsed("Destroy any number of target artifacts and/or enchantments.")
+        self.assertEqual(consign[0].data["probe"].target, "artifact_enchantment")
+        vigor = parsed("Destroy up to two target artifacts and/or enchantments.")
+        self.assertEqual([(e.kind, e.target) for e in vigor], [("destroy", "artifact_enchantment")] * 2)
+
+    def test_and_or_wording_that_parses_as_written_is_kept(self):
+        untap = parsed("Untap up to four target artifacts and/or creatures.")
+        self.assertEqual(len(untap), 4)
+        self.assertTrue(all(e.kind == "untap_prev" and e.data.get("cx_desc") == "artifact and/or creature"
+                            for e in untap))             # not an "artifact or creature you control" template
+
+    def test_player_lists(self):
+        for text in ("Any number of target players each mill two cards.",
+                     "Any number of target players each mill a card and lose 1 life.",
+                     "Any number of target opponents each discard their hands, then draw seven cards."):
+            with self.subTest(text):
+                got = parsed(text)
+                self.assertEqual([(e.kind, e.target) for e in got], [("cx_multi", "multi")])
+
+    def test_compound_keeps_the_list_subject(self):
+        effects, _ = _parse_effects("Any number of target players each mill a card and lose 1 life.")
+        self.assertEqual(len(effects), 1)                  # never "you lose 1 life"
+        inner = effects[0].data["chain"][0]
+        self.assertEqual([e.kind for e in inner.data["effects"]], ["mill", "lose_life"])
+
+    def test_bare_plural_verb_after_the_list(self):
+        sway = parsed("Any number of target creatures become the color of your choice until end of turn.")
+        self.assertEqual(sway[0].data["probe"].kind, "cx_retype")
+        self.assertIsNone(parsed("Any number of target creatures frobnicate."))
+
+    def test_wheel_resolves_for_each_chosen_opponent_only(self):
+        wheel = self.spell("Any number of target opponents each discard their hands, then draw seven cards.")
+        self.b.hand = [BEAR] * 3
+        self.a.hand = [BEAR] * 2
+        targets = self.game.auto_targets(self.a, wheel.spell_effects)
+        self.assertEqual(targets, [(self.b,)])              # the AI aims a wheel at the opponent
+        self.resolve(wheel, targets)
+        self.assertEqual((len(self.a.hand), len(self.b.hand)), (2, 7))
+        self.assertEqual(len(self.b.graveyard), 3)
+
+    def test_mill_and_lose_life_for_each_member(self):
+        tiny = self.spell("Any number of target players each mill a card and lose 1 life.")
+        self.resolve(tiny, [(self.a, self.b)])
+        self.assertEqual((len(self.a.library), len(self.b.library)), (19, 19))
+        self.assertEqual((self.a.life, self.b.life), (19, 19))
+
+    @unittest.skipUnless(os.path.exists(DB), "card database not built")
+    def test_real_cards_are_full(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.coverage import card_coverage
+        db = CardDB(offline=True)
+        for name in ("Consign to Dust", "Force of Vigor", "Sea God's Scorn", "Riverchurn Monument",
+                     "Tinybones Joins Up", "Wheel and Deal", "Sway of Illusion", "Repulsor Bots"):
+            with self.subTest(name):
+                self.assertEqual(card_coverage(db.get(name)).status, "full")
+
+
+class UpToX(Base):
+    """"up to X target ..., where X is <a count>": a list of at most X objects, X counted as targets are chosen
+    (#312 slice E)."""
+    CRESCENDO = card("Test Crescendo", "{3}{R}", "Enchantment", "At the beginning of your upkeep, you may put a "
+                     "verse counter on ~.\n{R}, Sacrifice ~: Destroy up to X target lands, where X is the number of "
+                     "verse counters on ~.")
+
+    def test_parse(self):
+        effects = parsed("Destroy up to X target lands, where X is the number of verse counters on ~.")
+        self.assertEqual([(e.kind, e.data["max_xq"]) for e in effects], [("cx_multi", ("counters", "verse"))])
+        marauder = parsed("Up to X target creatures each gain intimidate and haste until end of turn, where X is "
+                          "your devotion to black.")
+        self.assertEqual(marauder[0].data["max_xq"], ("devotion", ("B",)))
+        for text in ("Up to X target creatures you control get +X/+X until end of turn, where X is the number of "
+                     "colors among permanents you control.",          # X means two things
+                     "Destroy up to X target lands, where X is the number of times ~ was kicked.",
+                     "Return up to X target creatures to their owners' hands, where X is one plus the number of "
+                     "cards named ~ in all graveyards as you cast ~."):      # the count would drop "named ~"
+            with self.subTest(text):
+                self.assertIsNone(parsed(text))
+
+    def setup_crescendo(self, verses):
+        from mtgsim.engine import Permanent
+        self.assertEqual(self.CRESCENDO.unsupported, [])
+        cres = Permanent(self.CRESCENDO, self.a)
+        cres.counters["verse"] = verses
+        self.a.battlefield.append(cres)
+        self.a.battlefield.append(Permanent(card("Test Mountain", "", "Basic Land — Mountain", "({T}: Add {R}.)"),
+                                            self.a))
+        return cres
+
+    def test_at_most_x_targets_when_chosen(self):
+        cres = self.setup_crescendo(2)
+        lands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(3)]
+        effects = cres.card.activated[0].effects
+        self.assertTrue(self.game.valid_action_targets(self.a, effects, [tuple(lands[:2])], cres))
+        self.assertFalse(self.game.valid_action_targets(self.a, effects, [tuple(lands)], cres))
+        self.assertEqual(len(self.game.auto_targets(self.a, effects, cres)[0]), 2)
+
+    def test_sacrificed_source_still_resolves_for_the_chosen_number(self):
+        cres = self.setup_crescendo(2)
+        lands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(3)]
+        self.assertTrue(self.game.activate_ability(self.a, cres, 0))     # X read before ~ is sacrificed
+        self.game.settle()
+        self.assertNotIn(cres, self.a.battlefield)
+        self.assertEqual(sum(x in self.b.battlefield for x in lands), 1)
+
+    def test_they_cant_be_regenerated_reaches_each_destroy(self):
+        effects = parsed("Destroy up to X target nonblack creatures, where X is the number of verse counters on ~. "
+                         "They can't be regenerated.")
+        self.assertEqual(len(effects), 1)
+        self.assertTrue(all(e.data.get("no_regen") for e in effects[0].data["chain"]))
+        self.assertTrue(effects[0].data["probe"].data.get("no_regen"))
+
+    def test_no_counters_no_targets(self):
+        cres = self.setup_crescendo(0)
+        self.game.enter_battlefield(self.b, ISLAND)
+        self.assertEqual(self.game.auto_targets(self.a, cres.card.activated[0].effects, cres)[0], ())
+
+    @unittest.skipUnless(os.path.exists(DB), "card database not built")
+    def test_real_cards_are_full(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.coverage import card_coverage
+        db = CardDB(offline=True)
+        for name in ("Rumbling Crescendo", "Recantation", "Serra's Liturgy", "Mogis's Marauder", "Vile Requiem"):
+            with self.subTest(name):
+                self.assertEqual(card_coverage(db.get(name)).status, "full")
+
+
+class XTargets(Base):
+    """"Tap X target creatures" with X the spell's or ability's mana X: X is chosen as the number of targets
+    (#312 slice F)."""
+    GREMLINS = card("Test Gremlins", "{X}{X}{R}", "Sorcery", "Destroy X target artifacts. Create X 2/2 red Gremlin "
+                    "creature tokens.")
+    HELIX = card("Test Helix", "{5}", "Artifact", "{X}, {T}: Tap X target lands.")
+    ROCK = card("Test Rock", "{2}", "Artifact", "")
+
+    def mountains(self, n):
+        from mtgsim.engine import Permanent
+        for _ in range(n):
+            self.a.battlefield.append(Permanent(card("Test Mountain", "", "Basic Land — Mountain", "({T}: Add {R}.)"),
+                                                self.a))
+
+    def test_parse_and_gating(self):
+        tap = parsed("Tap X target creatures.")
+        self.assertEqual((tap[0].kind, tap[0].data["count_x"]), ("cx_multi", "exact"))
+        self.assertEqual(parsed("Destroy up to X target artifacts.")[0].data["count_x"], "up_to")
+        self.assertEqual(self.GREMLINS.unsupported, [])
+        self.assertEqual(self.HELIX.unsupported, [])
+        for text, types, cost in (("As an additional cost to cast this spell, sacrifice X creatures.\nDestroy X target "
+                                   "creatures.", "Sorcery", "{4}{B}"),                 # X isn't mana
+                                  ("When ~ enters, tap X target creatures.", "Enchantment", "{X}{U}"),   # a trigger
+                                  ("{1}, Remove X ki counters from ~: Tap X target creatures.", "Creature — Spirit",
+                                   "{2}{W}")):
+            with self.subTest(text):
+                c = card("Test Card", cost, types, text, 1, 1)
+                self.assertTrue(any("X target count" in u or "X" in u for u in c.unsupported), c.unsupported)
+
+    def test_x_is_the_number_of_targets_cut_to_what_can_be_paid(self):
+        rocks = [self.game.enter_battlefield(self.b, self.ROCK) for _ in range(3)]
+        self.mountains(4)                                  # {X}{X}{R}: X = 1 is all 4 lands pay for
+        self.a.hand.append(self.GREMLINS)
+        self.assertTrue(self.game.cast(self.a, self.GREMLINS))
+        self.game.settle()
+        self.assertEqual(sum(r not in self.b.battlefield for r in rocks), 1)
+        self.assertEqual(sum(x.card.is_token for x in self.a.battlefield), 1)
+        self.assertEqual(sum(not x.tapped for x in self.a.battlefield if x.card.is_land), 1)
+
+    def test_no_target_no_cast(self):
+        self.mountains(5)
+        self.a.hand.append(self.GREMLINS)
+        self.assertFalse(self.game.cast(self.a, self.GREMLINS))     # X = 0 would do nothing
+
+    def test_ability_x_is_the_number_of_targets(self):
+        from mtgsim.engine import Permanent
+        helix = Permanent(self.HELIX, self.a)
+        self.a.battlefield.append(helix)
+        self.mountains(3)
+        islands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(2)]
+        self.assertTrue(self.game.activate_ability(self.a, helix, 0))
+        self.game.settle()
+        self.assertTrue(all(x.tapped for x in islands))
+        self.assertEqual(sum(not x.tapped for x in self.a.battlefield if x.card.is_land), 1)   # paid X = 2, not 3
+
+    def test_exact_count_for_an_ability(self):
+        effects = list(self.HELIX.activated[0].effects)
+        islands = [self.game.enter_battlefield(self.b, ISLAND) for _ in range(2)]
+        import dataclasses
+        two = [dataclasses.replace(e, amount=2) for e in effects]
+        self.assertTrue(self.game.valid_action_targets(self.a, two, [tuple(islands)]))
+        self.assertFalse(self.game.valid_action_targets(self.a, two, [tuple(islands[:1])]))
+
+    @unittest.skipUnless(os.path.exists(DB), "card database not built")
+    def test_real_cards(self):
+        from mtgsim.carddb import CardDB
+        from mtgsim.coverage import card_coverage
+        db = CardDB(offline=True)
+        for name in ("Release the Gremlins", "Mishra's Helix", "Thrive"):
+            with self.subTest(name):
+                self.assertEqual(card_coverage(db.get(name)).status, "full")
+        for name in ("Eliminate the Competition", "Reality Spasm", "Lost in the Maze"):
+            with self.subTest(name):
+                self.assertNotEqual(card_coverage(db.get(name)).status, "full")
+
+
 if __name__ == "__main__":
     unittest.main()

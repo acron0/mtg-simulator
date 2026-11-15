@@ -35,6 +35,11 @@ class TurnsMixin:
             for pl in self.players:
                 if pl is not owner:          # triggers only: the move itself is the zone_change event above
                     self._dispatch_trigger_event(pl, "opp_card_to_gy", None, card)
+        if destination.name == "graveyard" and getattr(destination, "owner", None) is not None:
+            # "Whenever a land card is put into your graveyard from anywhere" (cx_trig_events.gy_head): the trigger
+            # grammar only, like opp_card_to_gy above (the move itself is the zone_change event)
+            from .. import cx_events
+            cx_events.observe(self, destination.owner, "card_to_gy", None, origin, card)
 
     def next_effect_timestamp(self):
         self.effect_clock += 1

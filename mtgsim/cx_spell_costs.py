@@ -174,7 +174,7 @@ def _pick(game, p, card, alt, avoid=()):
     sources = None
     for kind, n, spec in alt:
         if kind == "life":
-            if life_locked(p) or p.life <= n:
+            if life_locked(p) or p.life < n:        # CR 119.4: may pay the last life (#467)
                 return None
             out.append((kind, n, spec, ()))
             continue
@@ -374,7 +374,7 @@ def _value(p, picked) -> float:
         elif kind == "discard_hand":
             value += 0.8 * max(0, len(p.hand) - 1)
         elif kind == "life":
-            value += 0.25 * n
+            value += 0.25 * n + (100 if n >= p.life else 0)     # the AI doesn't pay itself to 0
         elif kind == "tap":
             value += 0.2 * n
     return value

@@ -31,7 +31,7 @@ import re
 
 _COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 _STATS = ("power", "toughness", "mana value")
-_ZONES = {"in all graveyards": "all_gy", "in your graveyard": "your_gy", "in an opponent's graveyard": "opp_gy",
+_ZONES = {"in all graveyards": "all_gy", "in each graveyard": "all_gy", "in your graveyard": "your_gy", "in an opponent's graveyard": "opp_gy",
           "in your hand": "your_hand", "in exile": "exile", "you own in exile": "your_exile",
           "in your library": "your_library"}
 # "the number of <things> <past event> this turn" -> the turn-history condition phrase cx_condlib already counts
@@ -115,11 +115,11 @@ def quantity(text: str):
     m = re.fullmatch(r"the number of card types among cards (in all graveyards|in your graveyard)", low)
     if m:
         return ("cxq", "card_types", _ZONES[m[1]])
-    m = re.fullmatch(r"the number of (.+?) (in all graveyards|in your graveyard|in an opponent's graveyard|"
+    m = re.fullmatch(r"the number of (.+?) (in all graveyards|in each graveyard|in your graveyard|in an opponent's graveyard|"
                      r"in your hand|in exile|you own in exile|in your library)", t, re.I)
     if m:
         zone = _ZONES[m[2].lower()]
-        named = re.fullmatch(r"cards named ~", m[1], re.I)
+        named = re.fullmatch(r"cards? named ~", m[1], re.I)
         if named:
             return ("cxq", "cards", zone, None)
         spec = _cards(m[1])

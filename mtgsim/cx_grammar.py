@@ -481,6 +481,8 @@ def _for_each(rest: str, desc: str):
     spec = _count_spec(desc)
     if spec is None:
         return None
+    if re.search(r",? then ", rest, re.I):
+        return None     # "gains 4 life, then gains 4 life for each X": only the last part is counted (#314)
     effects = parse_sentence(rest)
     if not effects:
         return None
@@ -519,7 +521,9 @@ def _count_spec(desc: str):
         if spec is None:
             continue
         # the plural we made up names a thing: use the word as written ("soot counter": counters are stored "soot")
-        spec = spec[:1] + tuple(w.lower() if isinstance(v, str) and v.lower() == many.lower() else v for v in spec[1:])
+        if spec[0] != "cxq":     # a cxq spec's second field is its kind ("cards"), not the thing's name (#314)
+            spec = spec[:1] + tuple(w.lower() if isinstance(v, str) and v.lower() == many.lower() else v
+                                    for v in spec[1:])
         if spec[0] == "count" and isinstance(spec[1], str) and \
                 any(x in _COUNT_STOPS - {"you"} for x in spec[1].lower().split()):
             return None     # the loose "the number of ... you control" swallowed a phrase it can't count

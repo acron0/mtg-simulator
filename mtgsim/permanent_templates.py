@@ -222,7 +222,8 @@ def selector(text, *, plural=False):
             text = re.sub(re.escape(scope), '', text, flags=re.I)
             result['owner'] = label
     for scope, label in ((" you control", 'mine'), (" an opponent controls", 'opp'), (" you don't control", 'opp'), (" your opponents control", 'opp'),
-                         (" each opponent controls", 'opp'), (" target opponent controls", 'opp')):
+                         (" each opponent controls", 'opp'), (" target opponent controls", 'opp'),
+                         (" that player controls", 'that_player'), (" defending player controls", 'defending')):
         if scope in text.lower():
             if 'controller' in result or text.lower().count(scope) != 1:
                 return None
@@ -230,6 +231,11 @@ def selector(text, *, plural=False):
             if tail and not tail.startswith((' with ', ' without ')):
                 return None
             text = re.sub(re.escape(scope), '', text, flags=re.I)
+            if label in ('that_player', 'defending'):
+                # the trigger's player / the player the source attacks (#338): an opponent wherever only "opp" is
+                # read; matches() narrows it to that exact player when the trigger gives one (scope_player)
+                result['scope'] = label
+                label = 'opp'
             result['controller'] = label
     base = re.search(r' with base power and toughness (\d+)/(\d+)$', text, re.I)
     if base:
@@ -297,6 +303,34 @@ def selector(text, *, plural=False):
     return result
 
 
+def scope_player(game, scope):
+    """The player "that player" / "defending player" names for the ability whose targets are being chosen or
+    checked, or None when it can't be told (then the selector's "opp" stands)."""
+    if game is None:
+        return None
+    from .engine.state import Permanent, Player, StackItem
+    item = getattr(game, "target_source", None)
+    if not isinstance(item, StackItem):
+        item = getattr(game, "resolving_item", None) or item       # group effects: the resolving ability
+    ctx = getattr(game, "trigger_context", None)
+    if ctx is None and isinstance(item, StackItem):
+        ctx = item.context
+    if scope == 'that_player':
+        chosen = getattr(game, "_choosing_targets", None) if isinstance(getattr(game, "_choosing_targets", None), list) \
+            else (item.targets if isinstance(item, StackItem) else [])
+        named = [t for t in chosen or () if isinstance(t, Player)]
+        if named:
+            return named[0]                 # "Target player ... target creature that player controls"
+        if isinstance(ctx, StackItem):
+            ctx = ctx.controller            # a cast trigger's context is the spell: its caster
+        return ctx if isinstance(ctx, Player) else None
+    src = item.source if isinstance(item, StackItem) else item
+    attacked = game.attack_targets.get(src) if isinstance(src, Permanent) else None
+    if isinstance(attacked, Permanent):
+        attacked = attacked.controller
+    return attacked if isinstance(attacked, Player) else None
+
+
 def _named(permanent, name, source) -> bool:
     """"named ~": the source's own name (its card's, so a copy of it counts); else the printed name."""
     if name == "~":
@@ -319,7 +353,11 @@ def matches(game, permanent, spec, controller, source=None):
         return False
     if 'name' in spec and not _named(permanent, spec['name'], source):
         return False
-    if spec.get('controller') and (permanent.controller is controller) != (spec['controller'] == 'mine'):
+    scoped = scope_player(game, spec['scope']) if spec.get('scope') else None
+    if scoped is not None:
+        if permanent.controller is not scoped:
+            return False
+    elif spec.get('controller') and (permanent.controller is controller) != (spec['controller'] == 'mine'):
         return False
     if spec.get('owner') and (permanent.owner is controller) != (spec['owner'] == 'mine'):
         return False

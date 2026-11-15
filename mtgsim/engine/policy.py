@@ -82,6 +82,12 @@ def damage_amount(game: Game, eff: Effect, source=None) -> int:
 
 def default_choose_target(game: Game, me: Player, eff: Effect):
     """A reasonable target for eff, respecting hexproof and targeting restrictions."""
+    sel = eff.data.get("selector")
+    if isinstance(sel, dict) and sel.get("scope"):
+        from ..permanent_templates import scope_player
+        if scope_player(game, sel["scope"]) is me:   # "target creature that player controls" and that player is us
+            legal = [x for x in game.legal_targets(me, eff) if isinstance(x, Permanent)]
+            return min(legal, key=perm_value, default=None)
     if eff.target == "multi" and eff.data["probe"].kind == "cx_attach" and eff.data["probe"].data.get("host") != "target":
         from ..cx_attach import choose_many
         return choose_many(game, me, eff)

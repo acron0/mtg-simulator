@@ -1,3 +1,7 @@
+"""The cx_lose_all kind (see mtgsim.cx_static_chars, #406 slice 3)."""
+from . import kind
+
+
 
 
 @kind("cx_lose_all")

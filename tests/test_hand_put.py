@@ -104,8 +104,14 @@ class Parse(unittest.TestCase):
                 # "that damage" is a dynamic referent (#313)
                 "Whenever ~ deals combat damage to a player, you may put an artifact card with mana value less "
                 "than or equal to that damage from your hand onto the battlefield.",
-                # another player's decision
-                "When ~ enters, each opponent may put a creature card from their hand onto the battlefield.",
+                # another player's put from "your" hand, and "their" hand without another player
+                "When ~ enters, each opponent may put a creature card from your hand onto the battlefield.",
+                "When ~ enters, you may put a creature card from their hand onto the battlefield.",
+                # "that player" / "its controller" referents are not modelled here
+                "When ~ enters, that player may put a creature card from their hand onto the battlefield.",
+                # counted puts of Auras (host choice) and subtype lists stay out
+                "{T}: Put up to two Aura cards from your hand onto the battlefield.",
+                "{T}: Put any number of non-Saga permanent cards from your hand onto the battlefield.",
                 # combat entry into a block
                 "{T}: You may put a creature card from your hand onto the battlefield blocking target creature.",
                 # a bare Aura from hand needs a host choice this template doesn't make
@@ -378,6 +384,125 @@ class Resolve(unittest.TestCase):
         self.assertFalse(ability_worth(self.game, self.a, vial, idx))
         self.a.hand.append(BEAR2)
         self.assertTrue(ability_worth(self.game, self.a, vial, idx))
+
+
+
+GHALTA = card("Test Stampede", "{4}", "Artifact", "{T}: Put any number of creature cards from your hand onto the "
+              "battlefield.")
+NAIL = card("Test Nail", "{9}", "Sorcery", "Put up to two creature cards from your hand onto the battlefield.")
+MICHEL = card("Test Michel", "{3}", "Artifact", "{T}: You may put a creature card and/or a land card from your hand "
+              "onto the battlefield.")
+SHOW = card("Test Show", "{2}{U}", "Sorcery", "Each player may put an artifact, creature, enchantment, or land card "
+            "from their hand onto the battlefield.")
+WUMPUS = card("Test Wumpus", "{3}{G}", "Creature — Beast", "When ~ enters, each other player may put a creature card "
+              "from their hand onto the battlefield.", 6, 6)
+WURM = card("Test Tempting", "{1}{G}", "Creature — Wurm", "When ~ enters, each opponent may put any number of "
+            "artifact, creature, enchantment, and/or land cards from their hand onto the battlefield.", 5, 5)
+SHOCK = card("Test Shock", "{R}", "Instant", "Test Shock deals 2 damage to any target.")
+FOREST = card("Forest", types="Basic Land — Forest", text="({T}: Add {G}.)")
+
+
+class Many(unittest.TestCase):
+    """Counted puts and other players' puts (#331 slice 4)."""
+    def setUp(self):
+        self.a, self.b = Player("a", [], Scripted()), Player("b", [], Scripted())
+        self.game = Game(self.a, self.b, random.Random(0), log=True)
+        self.game.turn, self.game.step = 2, "main1"
+        for p in (self.a, self.b):
+            p.library = [ISLAND] * 20
+            p.ai.attack, p.ai.block = (), {}
+            p.ai.respond = p.ai.respond_extras = lambda *args: None
+
+    def names(self, p):
+        return sorted(x.card.name for x in p.battlefield)
+
+    def resolve(self, c, who=None):
+        from mtgsim.engine.state import StackItem
+        who = who or self.a
+        item = StackItem(who, list(c.spell_effects), [None] * len(c.spell_effects), card=c, kind="spell")
+        self.game.stack.append(item)
+        self.game.settle()
+
+    def test_parse(self):
+        for c in (GHALTA, NAIL, MICHEL, SHOW, WUMPUS, WURM):
+            self.assertEqual(c.unsupported, [], c.name)
+        self.assertEqual(_eff(GHALTA).data, {"count": "any", "spec": {"types": ["creature"]}})
+        self.assertEqual(NAIL.spell_effects[0].data["count"], 2)
+        self.assertEqual(_eff(MICHEL).data["each_of"], [{"types": ["creature"]}, {"types": ["land"]}])
+        self.assertEqual(SHOW.spell_effects[0].data, {"who": "each", "spec": {
+            "any": ["artifact", "creature", "enchantment", "land"]}})
+        self.assertEqual(WUMPUS.triggers[0].effects[-1].data["who"], "each_other")
+        self.assertEqual(WURM.triggers[0].effects[-1].data["who"], "each_opp")
+
+    def test_any_number_puts_every_creature_but_one_copy_of_a_legend(self):
+        stampede = self.game.enter_battlefield(self.a, GHALTA)
+        self.a.hand = [BEAR2, OGRE3, LEGEND, LEGEND, FOREST, SHOCK]
+        self.assertTrue(self.game.activate_ability(self.a, stampede, len(stampede.activated) - 1))
+        self.game.settle()
+        self.assertEqual(self.names(self.a), ["Test Legend", "Test Stampede", "Three Ogre", "Two Bear"])
+        self.assertEqual(sorted(c.name for c in self.a.hand), ["Forest", "Test Legend", "Test Shock"])
+
+    def test_up_to_two(self):
+        self.a.hand = [BEAR2, OGRE3, BRUTE]
+        self.resolve(NAIL)
+        self.assertEqual(self.names(self.a), ["Test Brute", "Three Ogre"])     # the two biggest
+        self.assertEqual([c.name for c in self.a.hand], ["Two Bear"])
+
+    def test_creature_and_or_land(self):
+        michel = self.game.enter_battlefield(self.a, MICHEL)
+        self.a.hand = [FOREST, BEAR2, OGRE3, FOREST]
+        self.assertTrue(self.game.activate_ability(self.a, michel, len(michel.activated) - 1))
+        self.game.settle()
+        self.assertEqual(self.names(self.a), ["Forest", "Test Michel", "Three Ogre"])
+        self.a.hand = [FOREST]                       # "and/or": the land alone
+        michel.tapped = False
+        self.assertTrue(self.game.activate_ability(self.a, michel, len(michel.activated) - 1))
+        self.game.settle()
+        self.assertEqual(self.names(self.a), ["Forest", "Forest", "Test Michel", "Three Ogre"])
+
+    def test_show_and_tell_both_players(self):
+        self.a.hand = [BRUTE, SHOCK]
+        self.b.hand = [OGRE3, SHOCK]
+        self.resolve(SHOW)
+        self.assertEqual(self.names(self.a), ["Test Brute"])
+        self.assertEqual(self.names(self.b), ["Three Ogre"])
+        self.assertEqual([c.name for c in self.b.hand], ["Test Shock"])
+
+    def test_each_other_player_only(self):
+        self.a.hand = [BRUTE]
+        self.b.hand = [OGRE3, BEAR2]
+        self.game.enter_battlefield(self.a, WUMPUS)
+        self.game.settle()
+        self.assertEqual(self.names(self.a), ["Test Wumpus"])
+        self.assertEqual(self.names(self.b), ["Three Ogre"])          # one card, its own pick
+
+    def test_each_opponent_any_number_with_etb_triggers(self):
+        self.b.hand = [HEALER, ROCK, FOREST, SHOCK]
+        self.game.enter_battlefield(self.a, WURM)
+        self.game.settle()
+        self.assertEqual(self.names(self.b), ["Forest", "Test Healer", "Test Rock"])
+        self.assertEqual(self.b.life, 23)                         # the put creature's own ETB trigger
+        self.assertEqual([c.name for c in self.b.hand], ["Test Shock"])
+
+    def test_declined_and_empty(self):
+        self.b.ai.choose_hand_put = lambda game, me, cards, entry: None
+        self.a.hand, self.b.hand = [BRUTE], [OGRE3]
+        self.resolve(SHOW)
+        self.assertEqual((self.names(self.a), self.names(self.b)), (["Test Brute"], []))
+        self.a.hand = []
+        self.resolve(NAIL)
+        self.assertEqual(self.names(self.a), ["Test Brute"])
+
+    def test_ai_values(self):
+        stampede = self.game.enter_battlefield(self.a, GHALTA)
+        stampede.sick = False
+        idx = len(stampede.activated) - 1
+        self.assertFalse(ability_worth(self.game, self.a, stampede, idx))
+        self.a.hand = [BEAR2, OGRE3]
+        self.assertTrue(ability_worth(self.game, self.a, stampede, idx))
+        self.assertGreater(hand_put.value(self.game, self.a, _eff(GHALTA), stampede), 6)
+        self.b.hand = [OGRE3]
+        self.assertLess(hand_put.value(self.game, self.a, WUMPUS.triggers[0].effects[-1], None), 0)
 
 
 if __name__ == "__main__":

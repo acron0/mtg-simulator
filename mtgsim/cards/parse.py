@@ -604,6 +604,7 @@ def _parse_face(data: dict) -> CardDef:
             line = handle(st, line)
             if line is None:
                 break
+    from ..cx_cda import late_line; st.unsupported[:] = [u for u in st.unsupported if not late_line(u, st)]  # noqa: E702
     approximations = st.approximations
     enters_tapped = st.enters_tapped
     etb = st.etb

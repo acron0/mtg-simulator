@@ -305,6 +305,11 @@ class Permanent:
             n = self._cda_count(self.card.pt_cda)
             bp += n
             bt += n
+        if creature and "cda_q" in self.card.advanced_rules:      # any _xq quantity (cx_cda)
+            from ..cx_cda import quantity_bonus
+            qp, qt = quantity_bonus(self)
+            bp += qp
+            bt += qt
         if creature:
             for pl in (self.controller, self.controller.foe):
                 for x in (pl.battlefield if pl is not None else ()):

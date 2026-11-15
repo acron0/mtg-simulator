@@ -282,7 +282,8 @@ def _union_spec(alts, plural, *, intersection):
         return spec
     if not intersection and any(sum(1 for bucket, _ in kinds if bucket == 'type') != 1
                                 for _, kinds in parsed):
-        return None     # one type per alternative; intersections inside an alternative are not read yet
+        return None     # without intersections, one type per alternative; a subtype-only
+                        # alternative ("artifact or Vehicle") is read as a permanent of it
     return {'alts': [tuple(parts) for parts, _ in parsed]}
 
 
@@ -356,7 +357,7 @@ def selector(text, *, plural=False):
         if all(alt in _TYPES for alt in alts):
             result['types_any'] = alts
         else:
-            union = _union_spec(alts, plural, intersection=False)
+            union = _union_spec(alts, plural, intersection=True)
             if union is None:
                 return None
             result.update(union)

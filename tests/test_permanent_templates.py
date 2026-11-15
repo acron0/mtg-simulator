@@ -102,11 +102,32 @@ class PermanentTemplates(unittest.TestCase):
                          {'types_any': ['creature', 'planeswalker'], 'traits': ['legendary']})
 
     def test_modifier_on_one_alternative_only_stays_unread(self):
-        # intersections inside an alternative are not read (follow-up #506); see
-        # test_per_alternative_modifiers_read_as_alts for the alts cases now supported
-        for text in ('nontoken artifact creature or vehicle',):
+        # an alternative with no type or subtype of its own stays unread
+        for text in ('artifact or', 'artifact or with flying'):
             with self.subTest(text=text):
                 self.assertIsNone(selector(text))
+
+    def test_intersection_inside_a_union_alternative(self):
+        self.assertEqual(selector('nontoken artifact creature or vehicle'),
+                         {'alts': [('nontoken', 'artifact', 'creature'), ('vehicle',)]})
+        self.assertEqual(selector('artifact creature or vehicle'),
+                         {'alts': [('artifact', 'creature'), ('vehicle',)]})
+        self.assertEqual(selector('artifact or Vehicle'),
+                         {'alts': [('artifact',), ('vehicle',)]})
+
+    def test_alts_with_intersection_target_each_alternative_exactly(self):
+        golem = self.put(card('Golem', '{3}', 'Artifact Creature — Golem', '', 3, 3))
+        token_golem = self.put(make_token('Golem', 1, 1, artifact=True))
+        car = self.put(card('Car', '{2}', 'Artifact — Vehicle', ''))
+        artifact = self.put(card('Tool', '{1}', 'Artifact', ''))
+        bear = self.put()
+        eff = self.parse('Target nontoken artifact creature or Vehicle gains shroud until end of turn.')[0]
+        legal = self.g.legal_targets(self.a, eff)
+        self.assertIn(golem, legal)                # nontoken artifact creature
+        self.assertIn(car, legal)                  # Vehicle
+        self.assertNotIn(token_golem, legal)       # a token is not a nontoken artifact creature
+        self.assertNotIn(artifact, legal)          # a plain artifact is neither alternative
+        self.assertNotIn(bear, legal)
 
     def test_per_alternative_modifiers_read_as_alts(self):
         self.assertEqual(selector('artifact or nontoken creature'),
@@ -118,10 +139,9 @@ class PermanentTemplates(unittest.TestCase):
         self.assertEqual(selector('elf creature or artifact'),
                          {'alts': [('elf', 'creature'), ('artifact',)]})
 
-    def test_union_alternatives_need_exactly_one_type_each(self):
-        # subtype-only alternatives ("artifact or elf") and intersections inside an
-        # alternative ("nontoken artifact creature or vehicle") stay unread for now
-        for text in ('artifact or elf', 'nontoken artifact creature or vehicle', 'artifact or'):
+    def test_union_alternatives_need_a_noun_of_their_own(self):
+        # every alternative needs a type or subtype word; modifier-only alternatives stay unread
+        for text in ('artifact or', 'artifact or nontoken', 'artifact or with flying'):
             with self.subTest(text=text):
                 self.assertIsNone(selector(text))
 

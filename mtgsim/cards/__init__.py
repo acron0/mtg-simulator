@@ -243,6 +243,7 @@ from .. import cx_trigger_grants as _cx_trigger_grants
 _SUBS += _cx_trigger_grants.SUBS
 from .. import search_counted as _search_counted
 _EFFECT_PATTERNS += _search_counted.EFFECT_PATTERNS
+_SUBS += _search_counted.SUBS
 from .. import time_counters as _time_counters
 _EFFECT_PATTERNS += _time_counters.EFFECT_PATTERNS
 _SUBS += _time_counters.SUBS

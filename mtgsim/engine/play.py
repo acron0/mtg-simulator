@@ -128,7 +128,12 @@ class PlayMixin:
                 x = n
             cost["generic"] = cost.get("generic", 0) + x
         cost, improvised, delved = self.assist_payment(p, card, cost) if assisted else (cost, [], [])
-        plan = costs.spell_plan(self, p, card, cost, exclude=convoked + improvised)
+        from .. import cx_spell_costs           # "As an additional cost to cast ~, ..." (#342)
+        add_cost = cx_spell_costs.for_cast(self, p, card, targets)
+        if cx_spell_costs.alternatives(card) and add_cost is None:
+            return False
+        plan = costs.spell_plan(self, p, card, cost, exclude=convoked + improvised +
+                                cx_spell_costs.reserved(self, p, card, add_cost))
         if plan is None:
             return False
         cost = plan.cost
@@ -199,6 +204,11 @@ class PlayMixin:
             del p.exile[next(i for i, c in enumerate(p.exile) if c is base)]
         else:
             self._zone(p, kind).remove(base)
+        if add_cost is not None:
+            paid = cx_spell_costs.pay(self, p, card, add_cost)
+            if paid is False:
+                return False
+            sac_stats = sac_stats or paid
         if card.extra_discard and not card.discard_or_pay and not p.hand:
             return False
         if kind == "escape":

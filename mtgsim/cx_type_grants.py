@@ -58,7 +58,8 @@ def parse_line(line: str, st) -> bool:
         from .permanent_templates import selector
         spec = selector(group, plural=True)
         if spec is None or "creature" not in spec.get("types_all", ()) or spec.get("subtypes") or \
-                spec.get("not_subtypes") or "cx_desc" in spec or "keyword" in spec:
+                spec.get("not_subtypes") or "cx_desc" in spec or "keyword" in spec or "counter" in spec or \
+                set(spec.get("traits", ())) - {"token", "nontoken"}:
             return False                     # creatures only, and no membership that reads creature types
         subj_end = len(group)
     subs = _subtypes(m[1], plural=not host and not each)
@@ -122,7 +123,8 @@ def refresh_all(game) -> None:
 
 def _grants(perm) -> bool:
     card = getattr(perm, "_card", None)
-    return bool(card is not None and card.advanced_rules and card.advanced_rules.get("type_grants"))
+    from .cx_static_chars import grants as chars_grants     # cx_static_chars' layer-4/5 statics
+    return bool(card is not None and card.advanced_rules and card.advanced_rules.get("type_grants")) or chars_grants(perm)
 
 
 def changed(game, perm) -> None:
@@ -130,7 +132,8 @@ def changed(game, perm) -> None:
     if game is None:
         return
     from .residual_templates import sources
-    if _grants(perm) or sources(game, "type_grants"):
+    from .cx_static_chars import present as chars_present
+    if _grants(perm) or sources(game, "type_grants") or chars_present(game):
         refresh_all(game)
 
 

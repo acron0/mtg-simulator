@@ -43,7 +43,7 @@ class CoinFlipEach(unittest.TestCase):
 
     def test_real_cards_are_full(self):
         for name in ("Goblin Assassin", "Mana Clash", "Rakdos, the Showstopper", "Two-Headed Giant",
-                     "Mutalith Vortex Beast"):
+                     "Mutalith Vortex Beast", "Fiery Gambit", "Squee's Revenge"):
             with self.subTest(card=name):
                 self.assertEqual(self.real(name).unsupported, [])
 
@@ -114,6 +114,42 @@ class CoinFlipEach(unittest.TestCase):
     def test_two_headed_giant_mixed(self):
         giant = self.giant_attacks(True, False)
         self.assertFalse(giant.has("menace") or giant.has("double strike"))
+
+    # flip loops with a choice
+    def test_fiery_gambit_stops_after_one_win(self):
+        target = self.perm(BEAR, self.b)
+        gambit = self.real("Fiery Gambit")
+        self.g.rng = Coins(True, True, True)
+        self.resolve_spell(gambit, targets=[None, target, self.b, None, None])
+        self.assertEqual(self.g.rng.calls, 1)      # one tier taken, no gamble for the next
+        self.assertNotIn(target, self.b.battlefield)
+        self.assertEqual(self.b.life, 20)
+
+    def test_fiery_gambit_goes_for_lethal(self):
+        target = self.perm(BEAR, self.b)
+        self.b.life = 6
+        self.g.rng = Coins(True, True)
+        self.resolve_spell(self.real("Fiery Gambit"), targets=[None, target, self.b, None, None])
+        self.assertEqual(self.g.rng.calls, 2)
+        self.assertLessEqual(self.b.life, 0)
+
+    def test_fiery_gambit_a_loss_means_no_effect(self):
+        target = self.perm(BEAR, self.b)
+        self.b.life = 6
+        self.g.rng = Coins(True, False)
+        self.resolve_spell(self.real("Fiery Gambit"), targets=[None, target, self.b, None, None])
+        self.assertIn(target, self.b.battlefield)
+        self.assertEqual(self.b.life, 6)
+
+    def test_squees_revenge_all_won(self):
+        self.g.rng = Coins(True, True)
+        self.resolve_spell(self.real("Squee's Revenge"))
+        self.assertEqual((self.g.rng.calls, len(self.a.hand)), (2, 4))
+
+    def test_squees_revenge_a_loss_draws_nothing(self):
+        self.g.rng = Coins(True, False)
+        self.resolve_spell(self.real("Squee's Revenge"))
+        self.assertEqual(len(self.a.hand), 0)
 
     def test_mutalith_lost_flip_damages_the_opponent(self):
         self.g.rng = Coins(False)

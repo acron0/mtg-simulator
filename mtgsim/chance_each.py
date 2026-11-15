@@ -70,7 +70,41 @@ def _both(m):
     return _keep(out)
 
 
+_TIERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _gambit(m):
+    """Fiery Gambit: flip until a loss or until you stop; any loss means no effect; each "if you win N or more flips"
+    tier runs on N clean wins (cond ``flips_clean``)."""
+    import dataclasses
+    from .cards import Effect, _parse_effects
+    from .cx_condlib import _code
+    from .cx_grammar_cond import _both as both
+    out = [Effect("flip_coin", data={"until_lose": True, "may_stop": True})]
+    for n, body in re.findall(r" if you win (one|two|three|four|five) or more flips, ([^.]+)\.", " " + m[1], re.I):
+        effects, bad = _parse_effects(body[0].upper() + body[1:] + ".")
+        if bad or not effects:
+            return m[0]
+        cond = _code("flips_clean", _TIERS[n.lower()])
+        out += [dataclasses.replace(e, cond=both(e.cond, cond)) for e in effects]
+    return _keep(out) if len(out) > 1 else m[0]
+
+
+def _chosen_count(m):
+    """Squee's Revenge: choose a number, flip that many times or until a loss; all won: draw N per flip."""
+    from .cards import Effect
+    from .cx_condlib import _code
+    return _keep([Effect("flip_coin", data={"until_lose": True, "chosen_count": True}),
+                  Effect("draw", int(m[1]) if m[1].isdigit() else _TIERS[m[1].lower()],
+                         cond=_code("flips_clean", 1), data={"xq": ("cxq", "flips", "won")})])
+
+
 SUBS = [
+    (re.compile(r"(?:^|(?<=\. ))flip a coin until you lose a flip or choose to stop flipping\. if you lose a flip, ~ "
+                r"has no effect\.((?: if you win (?:one|two|three|four|five) or more flips, [^.]+\.)+)", re.I), _gambit),
+    (re.compile(r"(?:^|(?<=\. ))choose a number\. flip a coin that many times or until you lose a flip, whichever "
+                r"comes first\. if you win all the flips, draw (two|three|\d+) cards for each flip\.", re.I),
+     _chosen_count),
     (re.compile(r"(?:^|(?<=\. ))each player flips a coin\. each player whose coin comes up tails ([^.]+)\.", re.I),
      _players),
     (re.compile(r"(?:^|(?<=\. ))you and target opponent each flip a coin\. ~ deals (\d+) damage to each player whose "
@@ -129,3 +163,22 @@ def resolve(game, p, eff, item):
                 game.resolve(pl, e, None, item)
         if not data.get("until_all_heads") or all(heads.values()) or game.over:
             return
+
+
+def choose_stop(game, p, wins: int, item) -> bool:
+    """Default policy for "until you lose a flip or choose to stop flipping": another flip risks everything won so
+    far for the next tier. Take the first tier (Fiery Gambit's 3 damage to a creature), a second only when it is
+    lethal (6 damage to each opponent at 6 life or less), and never gamble for a third."""
+    import json
+    tiers = sorted({json.loads(e.cond[4:])[1] for e in getattr(item, "effects", ())
+                    if e.cond.startswith('lib:["flips_clean"')})
+    if not tiers or wins >= 2 or wins >= tiers[-1]:
+        return True
+    if wins >= 1:
+        return not (game.opponent(p).life <= 6 and 2 in tiers)
+    return False
+
+
+def choose_count(game, p, item) -> int:
+    """Default policy for "Choose a number. Flip a coin that many times ...": two (2n / 2^n is best at one or two)."""
+    return 2

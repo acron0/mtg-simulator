@@ -45,6 +45,7 @@ def _singular_np(rest: str):
     for plural, single in _IRREGULAR.items():
         np = re.sub(rf"\b{plural}\b", single, np)
     np = _PLURAL.sub(lambda m: m[1] or m[2], np)
+    np = np.replace(" and/or ", " or ")     # one object of "artifacts and/or enchantments" is an artifact or enchantment
     return np + tail
 
 
@@ -67,14 +68,16 @@ def _rewrite(s: str, n: int):
 
 
 _ANY = re.compile(r"\bany number of (other |another )?target\b", re.I)
-_AGREE = {"get": "gets", "gain": "gains", "have": "has", "become": "becomes", "lose": "loses", "deal": "deals"}
+_AGREE = {"get": "gets", "gain": "gains", "have": "has", "become": "becomes", "lose": "loses", "deal": "deals",
+          "mill": "mills", "discard": "discards", "draw": "draws", "sacrifice": "sacrifices", "create": "creates",
+          "scry": "scries", "surveil": "surveils", "shuffle": "shuffles", "put": "puts", "return": "returns"}
 
 
 def _rewrite_any(s: str):
     m = _ANY.search(s)
     rest = _singular_np(s[m.end():])
     # "... each get +1/+0 and gain ...": the verbs agree with one target now
-    rest = re.sub(r"^((?:\s+\S+)*?)\s+each (get|gain|have|become|lose|deal)\b",
+    rest = re.sub(r"^((?:\s+\S+)*?)\s+each (get|gain|have|become|lose|deal|mill|discard|draw|sacrifice|create|scry|surveil|shuffle|put|return)\b",
                   lambda v: v[1] + " " + _AGREE[v[2]], rest, count=1)
     rest = re.sub(r'\band (get|gain|have|become|lose)\b(?=[^"]*(?:"[^"]*"[^"]*)*$)', lambda v: "and " + _AGREE[v[1]],
                   rest, count=1)            # not inside a quoted ability (an even number of quotes follows)

@@ -268,6 +268,7 @@ _ALIASES = {
     "~ was cast": "cast",
     "you cast it": "cast",
     "you cast ~": "cast",
+    "~ wasn't cast": "lib:[\"not_cast\"]",
     "a creature died under your control this turn": "lib:[\"died_mine\"]",
     "you're the monarch": "lib:[\"monarch\"]",
     "you are the monarch": "lib:[\"monarch\"]",
@@ -550,6 +551,27 @@ def _no_mana_spent(m):
 @rule(rf"at least (?P<n>{_NUM}) (?P<c>white|blue|black|red|green|colorless) mana was spent to cast ~")
 def _color_mana_spent(m):
     return _code("mana_color", "WUBRGC"["white blue black red green colorless".split().index(m["c"].lower())], _n(m["n"]))
+
+
+@rule(rf"at least (?P<n>{_NUM}) mana of the same color was spent to cast (?:~|it|this spell)")
+def _same_color_spent(m):
+    """Adamant's colourless form (Henge Walker): some one colour paid at least N of the cost."""
+    return _code("mana_same", _n(m["n"]))
+
+
+@rule(rf"(?P<n>{_NUM}) or more colors of mana were spent to cast (?:~|it|this spell)")
+def _colors_spent(m):
+    return _code("mana_ncolors", _n(m["n"]))
+
+
+@rule(r"(?P<cs>(?:\{[WUBRG]\}){2,5}) was spent to cast (?:~|it|this spell)")
+def _spent_colors(m):
+    """"If {U}{B} was spent to cast ~" (the Mythos cycle): each of those colours paid the spell. A repeated
+    colour ("{G}{G}") is an amount of that colour, not read here."""
+    colours = re.findall(r"[WUBRG]", m["cs"])
+    if len(set(colours)) != len(colours):
+        return ""
+    return _code("and", *(_code("spent_color", c) for c in colours))
 
 
 @rule(rf"(?P<q>a|one or more|{_NUM} or more) cards? left your graveyard this turn")
@@ -1165,6 +1187,13 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return stamp == game.turn and n >= args[0]
     if kind == "gy_left":
         return getattr(p.graveyard, "left_turn", 0) >= args[0]
+    if kind == "not_cast":      # "if it wasn't cast": the permanent itself (entry conditions have no item)
+        return source is not None and not getattr(source, "was_cast", False)
+    if kind in ("mana_same", "mana_ncolors"):
+        src = item if getattr(item, "is_spell", False) else source
+        if kind == "mana_ncolors":
+            return len(set(getattr(src, "mana_colors", ())) & set("WUBRG")) >= args[0]
+        return max((n for c, n in getattr(src, "mana_by_color", {}).items() if c in "WUBRG"), default=0) >= args[0]
     if kind == "mana_color":
         src = item if getattr(item, "is_spell", False) else source
         return getattr(src, "mana_by_color", {}).get(args[0], 0) >= args[1]

@@ -619,6 +619,8 @@ def ability_worth(game: Game, me: Player, perm: Permanent, idx: int, reserve: in
     if x is not None:               # the X paid as mana: judge the effects at full size
         effects = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2)
                    if e.data.get("x") else e for e in effects]
+        effects = [dataclasses.replace(e, data=dict(e.data, x_now=x)) if e.data.get("mv_x") else e
+                   for e in effects]        # "mana value X or less" (Fiend Artisan): judge with the X chosen (#379)
     if c.get('remove_creature_counters') in ('x', 'positive'):
         payment = costs.ability_plan(game, me, perm, act, game.ability_cost(me, perm, act))
         if payment is None:

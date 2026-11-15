@@ -395,6 +395,38 @@ def _cost(text: str):
     if m:
         spec = _filter(m[1], plural=False) if m[1] else {}
         return {"discard": spec} if spec is not None else None
+    return _counted_cost(text)
+
+
+_COUNT = r"(a|an|another|one|two|three|four|five)"
+
+
+def _counted_cost(text: str):
+    """The counted costs of #330, or None: "return(s) N [untapped] <filter> you control to (its|their) owner's
+    hand", "tap(s) N untapped <filter> you control", "remove(s) N <kind> counter(s) from it", "exile(s) a card
+    from your graveyard", "has ~ deal N damage to them" (the payer takes the damage from the source)."""
+    from .cards.model import _num
+    from .cx_condlib import _filter
+
+    def count(word):
+        return 1 if word.lower() in ("a", "an", "another") else _num(word)
+
+    m = re.fullmatch(rf"returns? {_COUNT} (.+?) you control to (?:its|their) owners?'s? hands?", text, re.I)
+    if m:
+        spec = _filter(m[2], plural=count(m[1]) > 1)
+        return {"bounce": spec, "count": count(m[1]), "other": m[1].lower() == "another"} if spec else None
+    m = re.fullmatch(rf"taps? {_COUNT} untapped (.+?) you control", text, re.I)
+    if m:
+        spec = _filter(m[2], plural=count(m[1]) > 1)
+        return {"tap": spec, "count": count(m[1]), "other": m[1].lower() == "another"} if spec else None
+    m = re.fullmatch(rf"removes? {_COUNT} (\+1/\+1|-1/-1|[a-z]+) counters? from (?:it|~)", text, re.I)
+    if m:
+        return {"remove_counter": m[2].lower(), "count": count(m[1])}
+    if re.fullmatch(r"exiles? a card from (?:your|their) graveyard", text, re.I):
+        return {"exile_gy": {}}
+    m = re.fullmatch(r"(?:has|have) (?:~|it) deal (\d+) damage to (?:them|you|him or her)", text, re.I)
+    if m:
+        return {"damage": int(m[1])}
     return None
 
 

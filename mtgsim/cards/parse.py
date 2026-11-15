@@ -353,9 +353,11 @@ def _parse_effects(text: str, opts: bool = False):
             parts = None if re.search(r"\binstead\b", s, re.I) else _split_compound(s)
             from ..cx_suspect import parse_otherwise
             from .. import cx_grammar, cx_multi_target
+            from ..card_referent import parse_rider as card_ref     # "... equal to that card's mana value" (#313)
             if parts:
                 effects += parts
-            elif not parse_otherwise(s, effects) and not cx_grammar.parse_fallback(s, effects) \
+            elif not card_ref(s, effects) and not parse_otherwise(s, effects) and \
+                    not cx_grammar.parse_fallback(s, effects) \
                     and not cx_multi_target.lift(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312)
                 unmatched.append(sentence.strip())
         effects[first:] = _cx_tokens.reparse(s, effects[first:])

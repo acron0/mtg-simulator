@@ -220,6 +220,7 @@ class PlayMixin:
             if paid is False:
                 return False
             sac_stats = sac_stats or paid
+        discarded_cost = None
         if card.extra_discard and not card.discard_or_pay and not p.hand:
             return False
         if kind == "escape":
@@ -239,6 +240,7 @@ class PlayMixin:
             if pitched not in p.hand:
                 return False
             self.discard_card(p, pitched)
+            discarded_cost = pitched        # ("discarded", stat): "the discarded card's mana value" (#313)
             self.log(f"discards {pitched.name} for {card.name}", p)
         if kind == "channel":      # channel / reinforce: "discard this card" is a real discard (madness, "whenever you discard")
             from ..madness import after_discard, discard_destination
@@ -299,6 +301,9 @@ class PlayMixin:
         item.evidence = self.collect_evidence(p, card)
         item.emerged_toughness = getattr(self, "_emerge_toughness", None) if kind == "emerge" else None
         item.sac_stats = sac_stats
+        if discarded_cost is not None:
+            item.discarded_stats = (int(discarded_cost.power or 0), int(discarded_cost.toughness or 0),
+                                    discarded_cost.cmc)
         item.behold_exiled = list(getattr(self, "_add_cost_exiled", ())) if add_cost is not None else []
         if exiled_gy is not None:    # for ("exiled_gy", "power") and friends (Corpse Lunge)
             item.exiled_gy_stats = (int(exiled_gy.power or 0), int(exiled_gy.toughness or 0), exiled_gy.cmc)

@@ -136,6 +136,13 @@ def add_mana(game, p, eff, **_):
     if add_special(game, p, eff):
         return
     colors = list(eff.data["colors"])
+    if eff.data.get("devotion_choice"):        # "Choose a color. Add ... equal to your devotion to that color" (Nyx Lotus)
+        from ...cx_abil_mana import devotion_pick
+        color, n = devotion_pick(p)
+        p.last_added_mana = [Permanent(pool_mana(color), p) for _ in range(n)]
+        p.pool.extend(p.last_added_mana)
+        game.log(f"adds {color * n} (devotion to {color})", p)
+        return
     if eff.data.get("choice"):                 # "{U} or {R}", "one mana of any color": what the hand needs most
         need = {c: sum(card.mana_cost.get(c, 0) for card in p.hand) for c in eff.data["choice"]}
         colors.append(max(eff.data["choice"], key=lambda c: need[c]))

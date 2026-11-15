@@ -200,5 +200,6 @@ class FearHorsemanshipDelayed(unittest.TestCase):
 
     def test_unimplemented_delayed_actions_stay_visible(self):
         # "Draw a card at the beginning of the next end step" is supported now (cx_delayed).
-        c = card('Other delay', types='Instant', text='At the beginning of the next cleanup step, draw a card.')
+        # (and "at the beginning of the next cleanup step" since #344)
+        c = card('Other delay', types='Instant', text='At the beginning of the next declare blockers step, draw a card.')
         self.assertTrue(c.unsupported)

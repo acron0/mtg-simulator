@@ -87,12 +87,51 @@ class DamagedPermanent(unittest.TestCase):
             self.assertEqual(b.graveyard, [])
 
 
+HUNT = card("Test Hunt", "{3}{G}", "Creature — Wolf", "If a creature an opponent controls would die, exile it instead. "
+            "When you do, create a 2/2 green Wolf creature token.", 3, 3)
+
+
+class WhenYouDo(unittest.TestCase):
+    def wolves(self, a):
+        return sum(x.card.name.startswith("Wolf") for x in a.battlefield)
+
+    def test_parse(self):
+        self.assertEqual(HUNT.unsupported, [])
+        self.assertEqual(HUNT.advanced_rules["cx_exile_when"][0][0], "a creature an opponent controls")
+        bad = card("Test Bad", "{3}{G}", "Creature — Wolf", "If a creature an opponent controls would die, exile it "
+                   "instead. When you do, frobnicate the widget.", 3, 3)
+        self.assertTrue(bad.unsupported)
+
+    def test_only_when_the_exile_replaced_the_death(self):
+        g, a, b = game()
+        g.enter_battlefield(a, HUNT)
+        ogre = g.enter_battlefield(b, card("Ogre", "{2}{R}", "Creature — Ogre", "", 3, 3))
+        mine = g.enter_battlefield(a, card("Mine", "{1}", "Creature — Elf", "", 1, 1))
+        g.destroy(ogre)
+        g.settle()
+        self.assertEqual([c.name for c in b.exile], ["Ogre"])
+        self.assertEqual(self.wolves(a), 1)
+        g.destroy(mine)                                  # mine dies normally: no Wolf
+        g.settle()
+        self.assertEqual([c.name for c in a.graveyard], ["Mine"])
+        self.assertEqual(self.wolves(a), 1)
+
+    def test_other_exile_replacement_does_not_trigger(self):
+        g, a, b = game()
+        g.enter_battlefield(a, HUNT)
+        ogre = g.enter_battlefield(b, card("Ogre", "{2}{R}", "Creature — Ogre", "", 3, 3))
+        g.leave_battlefield(ogre, "exile")              # exiled, not a death replaced by the Hunt
+        g.settle()
+        self.assertEqual(self.wolves(a), 0)
+
+
 @unittest.skipUnless(DB_FILE.exists(), "needs mtgsim/data/cards.sqlite3")
 class Cards(unittest.TestCase):
     def test_full(self):
         from mtgsim.carddb import CardDB
         db = CardDB(offline=True)
-        for name in ("Gravebane Zombie", "Nissa's Chosen", "Spikefield Hazard // Spikefield Cave"):
+        for name in ("Gravebane Zombie", "Nissa's Chosen", "Spikefield Hazard // Spikefield Cave", "Head of the Hunt",
+                     "Nemata, Primeval Warden"):
             self.assertEqual(db.get(name).unsupported, [], name)
         self.assertTrue(db.get("Firestorm Phoenix").unsupported)     # its "can't play it" rider
 

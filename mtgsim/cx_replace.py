@@ -59,12 +59,18 @@ def parse_line(line: str, st) -> bool:
         _rules(st)["cx_die_dest"] = {"put it on top of": "library_top", "put it on the bottom of": "library_bottom",
                                      "return it to": "hand"}[m[1]]
         return True
-    m = re.fullmatch(r"If (an? .+?|another .+?) would die, exile it instead\.", line)
+    m = re.fullmatch(r"If (an? .+?|another .+?) would die, exile it instead\.(?: When you do, (.+\.))?", line)
     if m:
         from .cx_events import _object_subject
         spec = _object_subject(m[1])
         if spec is None or spec["host"] or spec["batch"]:
             return False
+        if m[2]:        # "When you do, create a 2/2 green Wolf creature token." (Head of the Hunt, #407)
+            from .cards.parse import _parse_effects
+            effects, bad = _parse_effects(m[2][0].upper() + m[2][1:])
+            if bad or not effects:
+                return False
+            _rules(st).setdefault("cx_exile_when", []).append((m[1], effects))
         _rules(st).setdefault("cx_exile_if", []).append(m[1])
         return True
     m = re.fullmatch(r"If you would draw a card( except the first one you draw in each of your draw steps)?, "
@@ -142,6 +148,19 @@ def exiles(game, perm) -> bool:
                 if spec is not None and x is perm and not spec["other"] and _subject_ok(game, spec, x, perm):
                     return True
     return False
+
+
+def when_you_do(game, perm) -> None:
+    """perm was exiled by a "would die, exile it instead" static: queue that static's "When you do" trigger (the first
+    matching source's; with several, only one replacement applied)."""
+    from .cx_events import _object_subject, _subject_ok
+    for pl in game.players:
+        for x in pl.battlefield:
+            for head, effects in _rules_of(x).get("cx_exile_when", ()):
+                spec = _object_subject(head)
+                if spec is not None and x is not perm and _subject_ok(game, spec, x, perm):
+                    game.queue_trigger(x.controller, effects, x, f"{x.card.name}: when you do", context=perm)
+                    return
 
 
 def die_destination(perm):

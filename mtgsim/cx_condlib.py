@@ -1239,6 +1239,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         if kind == "mana_ncolors":
             return len(set(getattr(src, "mana_colors", ())) & set("WUBRG")) >= args[0]
         return max((n for c, n in getattr(src, "mana_by_color", {}).items() if c in "WUBRG"), default=0) >= args[0]
+    if kind == "flips_all":       # "if both coins come up heads / tails" (chance_each): every coin flipped this way
+        won, lost = getattr(item, "flips_won", 0), getattr(item, "flips_lost", 0)
+        return won + lost > 0 and (lost if args[0] == "won" else won) == 0
     if kind == "mana_color":
         src = item if getattr(item, "is_spell", False) else source
         return getattr(src, "mana_by_color", {}).get(args[0], 0) >= args[1]

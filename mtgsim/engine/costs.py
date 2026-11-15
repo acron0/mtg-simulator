@@ -793,7 +793,8 @@ class CostsMixin:
     def impulse_cards(self, p: Player) -> list:
         """Exiled cards p may still play (drops the expired ones)."""
         p.impulse = [(c, t) for c, t in p.impulse if t >= self.turn and c in p.exile]
-        return [c for c, _ in p.impulse]
+        from ..cx_exile_play import foreign_lands      # lands p may play from another player's exile (#316)
+        return [c for c, _ in p.impulse] + foreign_lands(p)
 
     def _origin(self, card: CardDef):
         return getattr(card, "origin", None) or (card, "", None)

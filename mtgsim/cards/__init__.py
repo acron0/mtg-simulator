@@ -251,3 +251,6 @@ _EFFECT_PATTERNS += _capped_counters.EFFECT_PATTERNS
 _SUBS += _capped_counters.SUBS
 from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
+from .. import cx_exile_play as _cx_exile_play          # "exile the top card of that player's library" (#316)
+_EFFECT_PATTERNS += _cx_exile_play.EFFECT_PATTERNS
+_SUBS += _cx_exile_play.SUBS

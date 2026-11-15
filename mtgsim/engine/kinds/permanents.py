@@ -581,6 +581,17 @@ def oring_all(game, eff, item, **_):
                                       (x.is_creature or x.card.is_artifact) and x.card.cmc <= eff.amount])
 
 
+@kind("oring_group")
+def oring_group(game, p, eff, item, **_):
+    """"Exile all <group> until ~ leaves the battlefield" (mtgsim.linked_exile): the group as it is on resolution,
+    only while the source is still the same object on the battlefield."""
+    from ...permanent_templates import matches
+    src = item.source if item is not None else None
+    if isinstance(src, Permanent) and src in src.controller.battlefield:
+        game.exile_until_leaves(src, [x for pl in game.players for x in pl.battlefield
+                                      if x is not src and matches(game, x, eff.data["selector"], p, src)])
+
+
 @kind("token_copy")
 def token_copy(game, p, eff, **_):
     game.enter_battlefield(p, eff.data["card"])

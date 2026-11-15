@@ -49,3 +49,4 @@ from . import cx_mech  # noqa: E402,F401
 from . import cx_grammar  # noqa: E402,F401
 from . import cx_tokens  # noqa: E402,F401
 from . import cx_exchange  # noqa: E402,F401  (exchange of control, #334)
+from . import cx_static  # noqa: E402,F401  (sim-static's small kinds)

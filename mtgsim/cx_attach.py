@@ -131,7 +131,7 @@ def _pick(text: str):
 def parse(s: str):
     """Effects for an "attach <object> to <host>" sentence, or None."""
     from .cards.model import Effect
-    m = re.fullmatch(r"attach (.+?) to (.+?)\.?", s.strip(), re.I)
+    m = re.fullmatch(r"attach (up to one .+?|.+?) to (.+?)\.?", s.strip(), re.I)    # not the "to" of "up to one"
     if not m:
         return None
     host = _host(m[2])

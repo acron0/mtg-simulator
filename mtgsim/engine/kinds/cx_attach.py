@@ -48,12 +48,17 @@ def _referent(game, p, eff, item):
     return None
 
 
-def _it(game, item):
+def _it(game, p, eff, item):
     """"attach it to ...": an Aura / Equipment that entered during this resolution ("create an Equipment token ...
-    Attach it to ~"), else the attachment the trigger is about, else the source itself."""
+    Attach it to ~"), else one an earlier effect targeted ("Gain control of target Equipment ... Attach it to ~"),
+    else the attachment the trigger is about, else the source itself."""
     fresh = [x for x in _fresh(game, item) if is_attachment(x)]
     if fresh:
         return fresh[-1]
+    idx = next((i for i, e in enumerate(item.effects) if e is eff), 0)
+    for e, t in reversed(list(zip(item.effects[:idx], item.targets[:idx]))):
+        if isinstance(t, Permanent):     # (the earlier effect itself may have changed who controls it)
+            return t if is_attachment(t) and t in t.controller.battlefield else None
     for x in (getattr(item, "context", None), getattr(item, "source", None)):
         if isinstance(x, Permanent) and is_attachment(x):
             return x
@@ -78,7 +83,7 @@ def attach_kind(game, p, eff, target, item=None, **_):
     elif spec == "self":
         objs = [item.source if item is not None else None]
     elif spec == "it":
-        objs = [_it(game, item)]
+        objs = [_it(game, p, eff, item)]
     else:                                # chosen on resolution
         objs = picked(game, p, spec, dest, optional=bool(eff.data.get("optional")))
     if not isinstance(dest, Permanent):

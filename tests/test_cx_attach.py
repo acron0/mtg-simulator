@@ -40,7 +40,9 @@ class Parsing(unittest.TestCase):
                 ("Attach target Equipment you control to up to one target creature you control.",
                  ["cx_attach_mark", "cx_attach"]),
                 ("Attach target Equipment you control to ~.", ["cx_attach"]),
-                ("Attach up to one target Equipment you control to that creature.", ["cx_attach"])):
+                ("Attach up to one target Equipment you control to that creature.", ["cx_attach"]),
+                ("Attach up to one target Equipment you control to target creature you control.",
+                 ["cx_attach_mark", "cx_attach"])):
             with self.subTest(text):
                 self.assertEqual(kinds(text), want)
         effects, _ = _parse_effects("Attach up to one target Equipment you control to that creature.")
@@ -367,6 +369,17 @@ class UntargetedObjects(Base):
         self.assertEqual(self.game.auto_targets(self.a, effects, cell), [giant])   # a hostile Aura: their best
         self.run_item(effects, [giant], source=cell, kind="ability")
         self.assertIs(cell.aura_host, giant)
+
+    def test_it_is_the_equipment_an_earlier_effect_targeted(self):
+        ogre = self.perm(self.db.get("Ogre Geargrabber"), self.a)
+        theirs = self.perm(BLADE, self.b)
+        theirs.attached_to = self.perm(BEAR, self.b)
+        trig = ogre.card.triggers[0]
+        targets = self.game.auto_targets(self.a, trig.effects, ogre)
+        self.assertIs(targets[0], theirs)
+        self.run_item(trig.effects, targets, source=ogre, kind="trigger")
+        self.assertIs(theirs.controller, self.a)
+        self.assertIs(theirs.attached_to, ogre)
 
     def test_iron_man_attaches_only_an_equipment(self):
         iron = self.perm(self.db.get("Tony Stark // The Invincible Iron Man").back, self.a)

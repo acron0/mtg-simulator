@@ -713,6 +713,8 @@ def _parse_face(data: dict) -> CardDef:
     approximations += [note for rx, note in _SUB_NOTES if rx.search(oracle)]
     approximations += _copies.unfired_notes(types, triggers)      # #369
 
+    from ..cx_multi_target import unpaid_x
+    unsupported += unpaid_x(cost, spell, modes, triggers, activated, loyalty_abilities, etb, alt_costs, extra)  # #312
     if data.get("mana_cost") == "" and "Land" not in types:     # no mana cost at all (not {0}): CR 118.6
         extra.setdefault("advanced_rules", {})["no_mana_cost"] = True
     return CardDef(

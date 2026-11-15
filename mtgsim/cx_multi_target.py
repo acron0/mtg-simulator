@@ -129,6 +129,9 @@ def legal_list(game, p, eff, tgt) -> bool:
     most = max_count(game, p, eff)
     if most is not None and len(tgt) > most:
         return False
+    if eff.data.get("count_x") and eff.amount and len(tgt) != eff.amount and \
+            (eff.data["count_x"] == "exact" or len(tgt) > eff.amount):
+        return False                       # an ability's X, known while its targets are chosen
     return all(game.legal_target(p, eff.data["probe"], x) for x in tgt)
 
 
@@ -148,7 +151,7 @@ def choose_list(game, me, eff) -> tuple:
         from .blink import worth_blinking
         pool = [x for x in pool if worth_blinking(me, probe, x)]
     pool = sorted(pool, key=lambda x: -perm_value(x) if isinstance(x, Permanent) else 0)
-    most = max_count(game, me, eff)
+    most = max_count(game, me, eff) if not (eff.data.get("count_x") and eff.amount) else eff.amount
     return tuple(pool if most is None else pool[:most])
 
 
@@ -203,6 +206,49 @@ def _lift_upto_x(s: str, effects: list) -> bool:
     return True
 
 
+_X_TARGET = re.compile(r"\b((?i:each of )?)((?i:up to ))?X ((?i:other |another ))?(?i:target)\b")
+
+
+def _lift_x_targets(s: str, effects: list) -> bool:
+    """"Tap X target creatures." / "Destroy up to X target artifacts.": X is the spell's or ability's own X, and
+    the list holds exactly X objects ("up to X": at most X). X is chosen as the number of targets (play.cast /
+    abilities.activate_ability), so the list's length is X."""
+    if re.search(r"\bwhere X is\b", s, re.I):
+        return False
+    m = _X_TARGET.search(s)
+    body = s[:m.start()] + "any number of " + (m[3] or "") + "target" + s[m.end():]
+    new: list = []
+    if not _lift_any(body, new):
+        return False
+    multi = new[0]
+    effects.append(dataclasses.replace(multi, data=dict(multi.data, count_x="up_to" if m[2] else "exact", x=True)))
+    return True
+
+
+def x_count(effects, targets):
+    """The number of targets of an "X target" list among effects/targets, or None when there is none."""
+    for e, t in zip(effects, targets):
+        if e.data.get("count_x"):
+            return len(t or ())
+    return None
+
+
+def x_targets_cost(game, p, card, effects, targets, cost):
+    """A spell with "X target ...": X is the number of chosen targets, paid as generic mana; a list the caster can't
+    pay for is cut to its most valuable members it can (choose_list sorts them). Returns (cost, targets, x)."""
+    from . import costs as _costs
+    targets = list(targets)
+    i = next(i for i, e in enumerate(effects) if e.data.get("count_x"))
+    per = max(1, card.mana_cost.get("X", 1)) if isinstance(card.mana_cost, dict) else 1     # {X}{X}: twice X
+    while True:
+        n = len(targets[i] or ())
+        total = dict(cost, generic=cost.get("generic", 0) + n * per)
+        total.pop("X", None)
+        if _costs.spell_plan(game, p, card, total) is not None or not targets[i]:
+            return total, targets, n
+        targets[i] = targets[i][:-1]
+
+
 def max_count(game, p, eff):
     """The most objects an "up to X target" list may hold, or None for no limit. Counted while targets are chosen;
     on resolution (a stack item is the targeting source) the number chosen stands."""
@@ -229,8 +275,10 @@ def lift(s: str, effects: list) -> bool:
         return False                          # "choose up to one target creature": a referent for later sentences
     if _ANY.search(outside):
         return not _COUNTED.search(outside) and _lift_any(s, effects)
-    if _UPTO_X.search(outside):
+    if _UPTO_X.search(outside) and _WHERE_X.search(s.strip().rstrip(".")):
         return _lift_upto_x(s, effects)
+    if _X_TARGET.search(outside):
+        return _lift_x_targets(s, effects)
     found = list(_COUNTED.finditer(s))
     if len(found) != 1:
         return False
@@ -345,3 +393,38 @@ def no_regen_rider(s: str, effects: list) -> bool:
     probe = chain[0] if chain[0].kind == "destroy" else multi.data["probe"]
     effects[-1] = dataclasses.replace(multi, data=dict(multi.data, chain=chain, probe=probe))
     return True
+
+
+def unpaid_x(cost, spell, modes, triggers, activated, loyalty, etb, alt_costs=(), extra=None) -> list:
+    """Unsupported notes for "X target ..." lists whose X isn't a mana {X} the engine ties to the targets. Only a
+    (non-modal) spell with {X} in its mana cost (play.cast) and an activated ability with one {X} in its cost
+    (abilities.activate_ability) choose X as the number of targets. X from an additional cost ("sacrifice X
+    creatures"), a trigger, a loyalty cost, a modal spell, an alternative or graveyard ability, or {X}{X} on an
+    ability stays unsupported (#312)."""
+    def has(obj, depth=0):
+        if depth > 4 or obj is None:
+            return False
+        if hasattr(obj, "kind") and hasattr(obj, "data") and isinstance(getattr(obj, "data"), dict):
+            return bool(obj.data.get("count_x"))
+        if isinstance(obj, dict):
+            return any(has(v, depth + 1) for v in obj.values())
+        if isinstance(obj, (list, tuple)):
+            return any(has(v, depth + 1) for v in obj)
+        effects = getattr(obj, "effects", None)
+        return has(effects, depth + 1) if effects is not None else False
+    bad = []
+    if has(spell) and not (cost or {}).get("X"):
+        bad.append("spell")
+    if any(has(m) for m in (modes or ())):
+        bad.append("mode")
+    if any(has(t.effects) for t in triggers or ()) or has(etb):
+        bad.append("trigger")
+    if any(has(a.effects) and a.cost.get("X") != 1 for a in activated or ()):
+        bad.append("ability")
+    if any(has(effs) for _, effs in loyalty or ()):
+        bad.append("loyalty")
+    if has(list(alt_costs or ())):
+        bad.append("alternative cost")
+    if has({k: v for k, v in (extra or {}).items() if k != "alt_costs"}):
+        bad.append("other")
+    return [f"X target count without a mana X tied to the targets ({', '.join(bad)})"] if bad else []

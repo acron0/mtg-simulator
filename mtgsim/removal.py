@@ -99,8 +99,10 @@ def _pair(kind, target="creature", flt="opp"):
 
 
 def _effect_bounce_own():
+    """'Return up to one other target permanent you control': any permanent of yours (lands too), optional,
+    and never the source itself (#435)."""
     from .cards import Effect
-    return Effect("bounce_own", target="nonland_perm", filter="mine")
+    return Effect("bounce_own", target="permanent", filter="mine", data={"other": True, "optional_target": True})
 
 
 _ORD = ("artifact", "enchantment", "creature", "planeswalker")

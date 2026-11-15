@@ -141,6 +141,17 @@ def _count(text: str):
 
 
 def parse_line(line: str, st) -> bool:
+    two = re.fullmatch(r"~ costs (\{\d+\}) less to cast if (.+?)(?: and|\. It also costs) (\{\d+\}) less to cast "
+                       r"if (.+)\.", line)
+    if two:     # "~ costs {1} less to cast if you control an artifact and {1} less to cast if you control an enchantment"
+        import copy
+        saved = copy.deepcopy(st.extra)
+        if parse_line(f"~ costs {two[1]} less to cast if {two[2]}.", st) and \
+                parse_line(f"~ costs {two[3]} less to cast if {two[4]}.", st):
+            return True
+        st.extra.clear()
+        st.extra.update(saved)
+        return False
     m = _LINE.fullmatch(line)
     if not m or st.level_marks or st.extra.get("_lvl_blocks"):
         return False        # a Class level's ability applies only from that level on
@@ -163,6 +174,13 @@ def parse_line(line: str, st) -> bool:
         conds.append(parse(m["if"]))
     if m["al"]:
         conds.append(as_static(m["al"]))
+    target = None
+    t = re.fullmatch(r" if it targets (.+)", tail)
+    if t:                               # "~ costs {2} less to cast if it targets a black permanent" (#341)
+        target = target_spec(t[1])
+        if target is None:
+            return False
+        tail = ""
     t = re.fullmatch(r" if (.+)", tail)
     if t:
         conds.append(parse(t[1]))
@@ -186,6 +204,12 @@ def parse_line(line: str, st) -> bool:
         return False
     rule["cond"] = conds[0] if conds else ""
     rules = st.extra.setdefault("advanced_rules", {})
+    if m["subj"] == "~" and target is not None:
+        if rule["turn"] or rule["per"] is not None or conds:
+            return False
+        rule["target"] = target
+        rules["target_cost"] = rules.get("target_cost", ()) + (rule,)
+        return True
     if m["subj"] == "~":
         if rule["per"] is not None and rule["per"][0] in ("stat", "counters"):
             return False        # the spell isn't a permanent yet
@@ -209,6 +233,29 @@ def parse_line(line: str, st) -> bool:
 def _quantity(text: str):
     from .cx_night_quantity import _quantity as q
     return q(text)
+
+
+def target_spec(text: str):
+    """What "if it targets <text>" asks of a target: ("spell", card filter) for "a blue spell", ("card", card filter)
+    for "a creature card with mana value 3 or less" (a graveyard card), ("permanent", noun spec) otherwise; or None."""
+    from .cx_condlib import _filter
+    m = re.fullmatch(r"an? (.+)", text.strip())
+    if not m:
+        return None
+    words = m[1]
+    spell = re.fullmatch(r"(.+?) spell", words)
+    if spell:
+        f = _filter(spell[1], plural=False)
+        return None if f is None else ("spell", f)
+    card = re.fullmatch(r"(.+? card(?: with .+)?)", words)
+    if card and " card" in words:
+        f = _filter(words, plural=False)
+        return None if f is None else ("card", f)
+    from .cx_grammar import _noun
+    noun = _noun(words, plural=False)
+    if noun is None:
+        return None
+    return ("permanent", noun.get("selector", noun))
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +308,9 @@ def _times(game, p, rule, source, card) -> int:
 
 def _applying(game, p, card):
     """(sign, amount, colored_only, times) for every cost rule that reaches this spell."""
+    for rule in card.advanced_rules.get("target_cost", ()):
+        if _targets_fit(game, p, card, rule["target"]):
+            yield rule["sign"], rule["amount"], rule.get("colored_only", False), 1
     for rule in card.advanced_rules.get("self_cost", ()):
         n = _times(game, p, rule, None, card)
         if n:
@@ -286,7 +336,8 @@ def adjust(game, p, card, cost: dict, increase: int = 0, reduction: int = 0) -> 
     """The cost after every increase, then every reduction (601.2f). increase / reduction: generic amounts from
     Game.cost_of's older paths (taxes and "or pay {N}" costs; Affinity, "costs {1} less for each ...")."""
     mods = []
-    if not card.is_land and (card.advanced_rules.get("self_cost") or _any_sources(game)):
+    if not card.is_land and (card.advanced_rules.get("self_cost") or card.advanced_rules.get("target_cost")
+                             or _any_sources(game)):
         mods = list(_applying(game, p, card))
     cost = dict(cost)
     cost["generic"] = cost.get("generic", 0) + increase
@@ -314,3 +365,94 @@ def adjust(game, p, card, cost: dict, increase: int = 0, reduction: int = 0) -> 
 def _any_sources(game) -> bool:
     from .residual_templates import sources
     return bool(sources(game, "cost_mod"))
+
+
+# ---------------------------------------------------------------------------
+# "~ costs {N} less to cast if it targets ..." (#341): read from the chosen targets
+# ---------------------------------------------------------------------------
+
+def _flat(targets):
+    for t in targets or ():
+        if isinstance(t, (tuple, list)):
+            yield from _flat(t)
+        elif t is not None:
+            yield t
+
+
+def fits(game, p, obj, spec) -> bool:
+    """Whether obj (a permanent, a spell on the stack or a graveyard card) is what the rule's target spec says."""
+    from .engine.state import Permanent, StackItem
+    from .cx_condlib import _card_ok
+    kind, f = spec
+    if kind == "permanent":
+        if not isinstance(obj, Permanent):
+            return False
+        from .permanent_templates import matches
+        return matches(game, obj, f, p, None)
+    if kind == "spell":
+        return isinstance(obj, StackItem) and obj.card is not None and _card_ok(obj.card, f)
+    return not isinstance(obj, (Permanent, StackItem)) and hasattr(obj, "types") and _card_ok(obj, f)
+
+
+def _targeted(card):
+    from .engine.state import TARGETED
+    return [e for e in card.spell_effects if e.target in TARGETED]
+
+
+def _candidates(game, p, card):
+    """Every legal target of the card's targeted effects (a castability check, before targets are chosen)."""
+    with game.targeting(card):
+        for e in _targeted(card):
+            yield from game.legal_targets(p, e)
+
+
+def _targets_fit(game, p, card, spec) -> bool:
+    """While the spell is cast (Game.cast sets game._cost_targets): whether one of its chosen targets fits (601.2f
+    follows 601.2c). Before that (can it be cast?): whether some legal target would."""
+    chosen = getattr(game, "_cost_targets", None)
+    objs = _flat(chosen) if chosen is not None else _candidates(game, p, card)
+    return any(fits(game, p, o, spec) for o in objs)
+
+
+def _side(game, obj):
+    owner = getattr(obj, "controller", None)
+    if owner is not None:
+        return owner
+    return next((pl for pl in game.players if any(c is obj for c in pl.graveyard)), None)
+
+
+def target_cost(game, p, card, effects, targets):
+    """(cost, targets) for Game.cast: the cost with the chosen targets. When the discount is what makes the spell
+    affordable and a chosen target doesn't qualify, that target is replaced by the most valuable qualifying legal
+    one on the same side (the caster wants the discount); otherwise the targets stay and payment decides."""
+    from . import costs as _costs
+    from .engine.state import Permanent, TARGETED
+
+    def priced(tgts):
+        game._cost_targets = tgts
+        try:
+            return game.cost_of(p, card, assist=False)
+        finally:
+            game._cost_targets = None
+    cost = priced(targets)
+    if _costs.spell_plan(game, p, card, cost) is not None:
+        return cost, targets
+    from .engine.policy import perm_value
+    for spec in [r["target"] for r in card.advanced_rules.get("target_cost", ())]:
+        for i, e in enumerate(effects):
+            t = targets[i]
+            if e.target not in TARGETED or t is None or isinstance(t, (tuple, list)) or fits(game, p, t, spec):
+                continue
+            with game.targeting(card):
+                options = [o for o in game.legal_targets(p, e) if fits(game, p, o, spec) and
+                           _side(game, o) is _side(game, t)]
+            if not options:
+                continue
+            best = max(options, key=lambda o: perm_value(o) if isinstance(o, Permanent) else getattr(
+                getattr(o, "card", o), "cmc", 0))
+            trial = list(targets)
+            trial[i] = best
+            new = priced(trial)
+            if _costs.spell_plan(game, p, card, new) is not None:
+                return new, trial
+    return cost, targets

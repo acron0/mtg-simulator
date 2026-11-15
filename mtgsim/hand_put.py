@@ -313,8 +313,10 @@ def choose_many(game, pl, eff, item) -> list:
     out, names = [], {x.card.name for x in pl.battlefield if x.card.legendary}
     for e, n in groups:
         for _ in range(n):
+            # an Aura put without being cast needs a host chosen as it enters (303.4f): not modelled for these
+            # puts, so the player doesn't put one
             cards = [c for c in candidates(game, pl, e, item) if not any(c is x for x in out)
-                     and not (c.legendary and c.name in names)]
+                     and not (c.legendary and c.name in names) and not c.aura]
             card = game.hook(pl, "choose_hand_put")(game, pl, cards, data.get("entry", "")) if cards else None
             if card is None or not any(card is c for c in cards):
                 break
@@ -326,18 +328,27 @@ def choose_many(game, pl, eff, item) -> list:
 
 def _put_many(game, p, eff, item):
     """Every chooser picks first, then all the picked cards enter together; returns p's first new permanent."""
-    plan = [(pl, choose_many(game, pl, eff, item)) for pl in _players(game, p, eff.data.get("who"))]
+    from .backlog_templates import entry_batch
+    from .residual_templates import blocked_entry
+    plan = [(pl, [c for c in choose_many(game, pl, eff, item) if c in pl.hand])
+            for pl in _players(game, p, eff.data.get("who"))]
     tapped = eff.data.get("entry") == "tapped"
     mine = None
-    for pl, cards in plan:
-        for card in cards:
-            if card not in pl.hand:
-                continue
-            pl.hand.remove(card)
-            perm = game.enter_battlefield(pl, card, tapped=tapped)
-            game.log(f"puts {card.name} onto the battlefield" + (" (tapped)" if tapped else ""), pl)
-            if pl is p and mine is None:
-                mine = perm
+    previous = getattr(game, "_batch_entry_suppressed", False)       # as Game.enter_battlefield_many
+    game._batch_entry_suppressed = previous or any(
+        (c.advanced_rules.get("suppress_entry") or c.advanced_rules.get("suppress_entry_death"))
+        and not blocked_entry(game, c) for _, cards in plan for c in cards)
+    try:
+        with entry_batch(game):          # one simultaneous entry for every player's cards (no SBA in between)
+            for pl, cards in plan:
+                for card in cards:
+                    pl.hand.remove(card)
+                    perm = game.enter_battlefield(pl, card, tapped=tapped)
+                    game.log(f"puts {card.name} onto the battlefield" + (" (tapped)" if tapped else ""), pl)
+                    if pl is p and mine is None:
+                        mine = perm
+    finally:
+        game._batch_entry_suppressed = previous
     return mine
 
 

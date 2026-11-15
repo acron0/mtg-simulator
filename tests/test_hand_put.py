@@ -484,6 +484,26 @@ class Many(unittest.TestCase):
         self.assertEqual(self.b.life, 23)                         # the put creature's own ETB trigger
         self.assertEqual([c.name for c in self.b.hand], ["Test Shock"])
 
+    def test_entries_are_simultaneous(self):
+        """A watcher entering with other creatures sees them, within one player and across players."""
+        warden = card("Test Warden", "{W}", "Creature — Human Cleric", "Whenever another creature enters, you gain "
+                      "1 life.", 1, 1)
+        self.a.hand, self.b.hand = [BRUTE], [warden]
+        self.resolve(SHOW)
+        self.assertEqual((self.b.life, self.a.life), (21, 20))
+        stampede = self.game.enter_battlefield(self.a, GHALTA)
+        self.a.hand = [warden, OGRE3]
+        self.assertTrue(self.game.activate_ability(self.a, stampede, len(stampede.activated) - 1))
+        self.game.settle()
+        self.assertEqual(self.a.life, 21)
+
+    def test_auras_are_not_put_without_a_host_choice(self):
+        self.game.enter_battlefield(self.b, BEAR2)
+        self.a.hand = [ARMOR, ROCK]
+        self.resolve(SHOW)
+        self.assertEqual(self.names(self.a), ["Test Rock"])
+        self.assertEqual([c.name for c in self.a.hand], ["Test Armor"])
+
     def test_declined_and_empty(self):
         self.b.ai.choose_hand_put = lambda game, me, cards, entry: None
         self.a.hand, self.b.hand = [BRUTE], [OGRE3]

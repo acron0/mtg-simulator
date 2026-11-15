@@ -41,11 +41,13 @@ def _parse_effects(text: str, opts: bool = False):
     from ..permanent_templates import split_sentences
     from ..cx_next_turn import mark, rewrite
     pending = None
+    starts: list = []
     sentences = list(split_sentences(text.strip()))
     for index, sentence in enumerate(sentences):
         s = sentence.strip().rstrip(".").strip()
         if not s:
             continue
+        starts.append(len(effects))  # where each sentence's effects begin ("instead" replaces the one before)
         mark(effects, pending)       # "until your next turn" / "player or planeswalker" (cx_next_turn)
         s, kind = rewrite(s)
         pending = (len(effects), kind) if kind else None
@@ -281,10 +283,11 @@ def _parse_effects(text: str, opts: bool = False):
                 continue
         mi = re.fullmatch(r"if (.+?), (.+)", s, re.I)
         if mi:
+            from ..cx_grammar_cond import if_body as _if_body
             cond = _if_cond(mi[1])
             if cond:
                 for body in (mi[2], re.sub(r"^you ", "", mi[2])):
-                    new, bad = _parse_effects(body[0].upper() + body[1:] + ".")
+                    new, bad = _if_body(body)     # "B instead" is read whole, not by a template
                     if new and not bad:
                         base = cond[1:] if cond.startswith("!") else cond
                         # a source fact ("~ has fewer than three charge counters on it", "~ didn't
@@ -359,7 +362,7 @@ def _parse_effects(text: str, opts: bool = False):
             if eff.data.get("unparsed_token_keywords"):
                 unmatched.append("Unsupported token keywords: " + ", ".join(eff.data["unparsed_token_keywords"]))
     from ..cx_grammar_cond import resolve_instead
-    unmatched += resolve_instead(effects)      # "If C, B instead": the effects B replaces get "not C"
+    unmatched += resolve_instead(effects, starts)    # "If C, B instead": the effects B replaces get "not C"
     mark(effects, pending)
     return effects, unmatched
 
@@ -625,7 +628,8 @@ def _parse_face(data: dict) -> CardDef:
                 extra.setdefault("advanced_rules", {})["kick_counters"] = _num(m[1])
                 continue
             if re.search(r"\binstead\b", k):
-                if not _kicker_instead(kicked_effects, k):
+                from ..cx_grammar_cond import kicked_instead
+                if not _kicker_instead(kicked_effects, k) and not kicked_instead(kicked_effects, k):
                     unsupported.append(f"if kicked: {k}")
                 continue
             effs, bad = _parse_effects(k)

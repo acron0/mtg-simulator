@@ -1291,6 +1291,10 @@ class HeuristicAI:
             with game.targeting(card if card is not None else game.target_source):
                 return engine.default_choose_target(game, me, eff)
         opp = game.opponent(me)
+        if eff.kind == "die_roll" and card is not None:
+            tgt = copies.group_model(game, me, eff, card)     # "choose target creature" a group copy reads
+            if tgt is not None:
+                return tgt
         if eff.kind == "damage":
             if eff.target in ("any", "player", "creature", "creature_pw"):
                 tgt, _ = self.best_damage_target(game, me, eff, card or CardDef("", {}, 0, frozenset()), False)

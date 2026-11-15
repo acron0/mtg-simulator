@@ -1092,7 +1092,8 @@ def _parse_trigger_line(line: str):
         once = events == ("targeted_mine",) or "for the first time each turn" in pat
         return [Trigger(e, effs, flt_map[e] if flt_map else flt, once=once,
                         intervening_if=gate) for e in events], bad, None
-    return None
+    from ..cx_trig_damage import parse as _damage_head      # damage heads from any source (#521)
+    return _damage_head(line)
 
 
 # deferred: face_lines imports the helpers above

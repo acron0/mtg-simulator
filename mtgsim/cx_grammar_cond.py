@@ -399,6 +399,10 @@ def _cost(text: str):
     if m:
         spec = _filter(m[1], plural=False) if m[1] else {}
         return {"discard": spec} if spec is not None else None
+    m = re.fullmatch(r"discards? (two|three|four|five) cards", text, re.I)
+    if m:                       # all of them or none (Court of Ambition)
+        from .cards.model import _num
+        return {"discard": {}, "count": _num(m[1])}
     return _counted_cost(text)
 
 
@@ -477,6 +481,8 @@ def _who_pays(payer: str, first):
         return {"controller": "prev_controller", "that_player": "context", "opponents": "opponent",
                 "target": "target"}.get(who) \
             if payer == "they" else None
+    if payer == "they" and first.kind == "edict" and first.target == "none":
+        return "opponent"           # "each opponent sacrifices a creature unless they ..." (two players)
     if payer == "they":
         return {"player": "target", "each_opponent": "opponent", "that_player": "context"}.get(first.target)
     if first.target == "prev":

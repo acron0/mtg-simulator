@@ -121,6 +121,9 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
         from ..cx_grammar_bite import choose as bite_choose
         return bite_choose(game, me, eff)
+    if eff.data.get("ref_amount"):     # a target only for an amount ("equal to target creature's power"): the largest
+        return max((x for x in legal if isinstance(x, Permanent)),
+                   key=lambda x: game.x_quantity(me, eff.data["xq"], None, x), default=None)
     if k in removal.KINDS:
         return removal.choose(game, me, eff)
     if k in ("cx_exchange_mark", "cx_exchange"):

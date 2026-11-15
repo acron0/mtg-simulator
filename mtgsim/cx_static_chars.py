@@ -39,7 +39,7 @@ import re
 _COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 _CARD_TYPES = {"artifact": "Artifact", "enchantment": "Enchantment", "creature": "Creature"}
 _IRREGULAR = {"elves": "elf", "dwarves": "dwarf", "wolves": "wolf", "fungi": "fungus", "mercenaries": "mercenary"}
-_HEADS = r"(?:is|are|has|have|gets?|can't|can|attacks?|blocks?|loses?)"
+_HEADS = r"(?:is|are|has|have|gets?|can't|can|attacks?|blocks?|loses?|it loses)"
 _HOST = re.compile(r"(Enchanted|Equipped) (creature|artifact|permanent)\b")
 # group membership a layer-4/5 change can't make stale (the view is recomputed only on enter / leave / attach)
 _STABLE = {"other", "controller", "types_all", "traits"}
@@ -172,6 +172,9 @@ def parse_line(line: str, st) -> bool:
     scope, spec, text, plural, rest = subj
     ops, others = [], []
     for phrase in _phrases(rest):
+        if re.fullmatch(r"(?:it )?loses? all (?:other )?abilities", phrase):
+            ops.append(("lose_all",))       # layer 6 (slice 3): "loses all other abilities" keeps this line's grants
+            continue
         if not re.match(r"(?:is|are)\b", phrase):
             others.append(phrase)           # the grammar's (gets, has, can't ...)
             continue
@@ -204,7 +207,7 @@ def parse_line(line: str, st) -> bool:
     rules = st.extra.setdefault("advanced_rules", {})
     rules[key] = tuple(rules.get(key, ())) + ((dict(spec), tuple(ops)) if scope == "group" else tuple(ops),)
     pt = next((op for op in ops if op[0] == "set_base"), None)
-    if scope == "host" and st.extra.get("aura") and pt and (pt[1] or 0) <= 1 and not others:
+    if scope == "host" and st.extra.get("aura") and (("lose_all",) in ops or pt and (pt[1] or 0) <= 1 and not others):
         st.extra["gate_hostile"] = True     # "Enchanted creature is a Turtle with base power and toughness 0/1"
     return True
 
@@ -302,6 +305,8 @@ def effects(perm) -> list:
             kind = op[0]
             if kind == "set_base":
                 out.append(ContinuousEffect(uid, perm, "set_base", stamp, op[1], op[2], source=source))
+            elif kind == "lose_all":
+                out.append(ContinuousEffect(uid, perm, "lose_all", stamp, source=source))
             elif kind in ("add_types", "set_types"):
                 subs = frozenset(op[2]) if kind == "set_types" else None
                 out.append(ContinuousEffect(uid, perm, kind, stamp, source=source, types=frozenset(op[1]),
@@ -329,3 +334,59 @@ def grants(perm) -> bool:
 def present(game) -> bool:
     from .residual_templates import sources
     return bool(sources(game, "cx_chars@group"))
+
+
+# ---------------------------------------------------------------- "loses all abilities" (layer 6, slice 3)
+
+# What a permanent that loses all its abilities keeps: its characteristics other than abilities (rule 613.1f
+# removes abilities in layer 6; name, cost, types, colours and printed P/T stay), and the bookkeeping of the card.
+_KEEP = {"name", "mana_cost", "cmc", "types", "subtypes", "power", "toughness", "unsupported", "approximations",
+         "oracle", "snow", "back", "adventure", "split_right", "land_face", "token_kind", "is_token", "is_ability",
+         "hybrid", "color_override", "basic", "legendary", "aura", "aura_hostile", "loyalty", "defense"}
+_BASIC_TYPES = {"Plains", "Island", "Swamp", "Mountain", "Forest"}
+
+
+def strip(base, subtypes) -> dict:
+    """CardDef field values for base without any of its abilities: every ability field back to its default, so
+    every reader of ``perm.card`` (triggers, activated abilities, keywords, statics, CDAs) sees none."""
+    import dataclasses
+    from .cards import CardDef
+    out = {}
+    for f in dataclasses.fields(CardDef):
+        if f.name in _KEEP:
+            out[f.name] = getattr(base, f.name)
+        elif f.default is not dataclasses.MISSING:
+            out[f.name] = f.default
+        elif f.default_factory is not dataclasses.MISSING:
+            out[f.name] = f.default_factory()
+        else:
+            out[f.name] = getattr(base, f.name)
+    if set(subtypes) & _BASIC_TYPES:        # a basic land type's mana ability comes with the type (rule 305.6)
+        out["produces"] = base.produces
+    return out
+
+
+def granted_after(perm, kw: str, stamp) -> bool:
+    """Whether a static grant newer than (or from the same effect as) the "loses all abilities" effect gives perm kw:
+    an Equipment or Aura attached at or after it, a group grant whose source arrived later, a later animation."""
+    from .permanent_templates import matches
+    for x in list(perm.equipment) + list(perm.auras):
+        if kw in x.card.equip_keywords and getattr(x, "attachment_timestamp", 0) >= stamp and perm.is_creature:
+            return True
+    game = getattr(perm.controller, "_game", None)
+    if game is not None:
+        for pl in game.players:
+            for source in pl.battlefield:
+                if getattr(source, "rules_timestamp", 0) > stamp and not source.abilities_suppressed and any(
+                        kw in kws and matches(game, perm, spec, source.controller, source)
+                        for spec, kws in source.card.static_keyword_grants):
+                    return True
+    anim = perm.animated
+    return bool(anim and kw in anim.keywords and getattr(perm, "animation_timestamp", 0) > stamp)
+
+
+def record_lose_all(extra: dict) -> None:
+    """"Enchanted creature loses all abilities" (auras.py's lines): a cx_chars host rule, and a hostile Aura."""
+    rules = extra.setdefault("advanced_rules", {})
+    rules["cx_chars@host"] = tuple(rules.get("cx_chars@host", ())) + ((("lose_all",),),)
+    extra["gate_hostile"] = True

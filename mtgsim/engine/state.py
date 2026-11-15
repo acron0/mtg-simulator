@@ -416,7 +416,8 @@ class Permanent:
 
     @property
     def abilities_suppressed(self):
-        return self.silenced or any('loses_abilities' in a.card.aura_flags for a in self.auras)
+        return self.silenced or any('loses_abilities' in a.card.aura_flags for a in self.auras) or \
+            getattr(self.__dict__.get("card"), "lost_all", False)      # "loses all abilities" (cx_static_chars)
 
     def has(self, kw):
         if self.silenced_by is not None and kw in KEYWORDS and self.silenced:

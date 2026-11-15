@@ -208,6 +208,7 @@ _THAT_MANY = ("that_many",)                  # "that many": the amount of the ev
 EVENT_AMOUNT_EVENTS = frozenset({
     "deals_damage", "damages_player", "combat_damage_creature", "dealt_damage", "dealt_combat_damage",
     "player_damaged", "damage_prevented", "gain_life", "opp_gain_life", "opp_loses_life", "you_attack",
+    "combat_damage_player", "ally_combat_damage",       # engine.combat sets the damage dealt (#329)
 })
 _that_many_ok = False
 

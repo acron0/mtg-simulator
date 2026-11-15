@@ -118,6 +118,10 @@ def _filter(text: str, plural: bool = True):
     """A permanent/card filter from "other untapped legendary creatures with flying", or None."""
     text = text.strip().replace(",", "")
     spec: dict = {}
+    m = re.fullmatch(r"(\d+)/(\d+) (.+)", text)
+    if m:                       # "a 1/1 creature" (#325): exact power and toughness
+        spec["power"], spec["toughness"] = ["==", int(m[1])], ["==", int(m[2])]
+        text = m[3]
     m = re.fullmatch(r"(.+?) with (?:power|mana value) (\d+) or (greater|more|less)", text)
     if m:
         key = "power" if "power" in text.split(" with ")[1] else "mv"
@@ -330,6 +334,14 @@ def _opp_control(m):
     if f is None:
         return ""
     return _code("ctl", "opp", f, op, n)
+
+
+@rule(rf"there (?:is|are) {_QUANT} (?P<f>.+?) on the battlefield")
+def _on_battlefield(m):
+    """"there is a Mountain on the battlefield", "there are five or more Islands on the battlefield" (#325)."""
+    op, n = _quant(m["q"])
+    f = _filter(m["f"], _plural(m["q"]))
+    return _code("ctl_all", f, op, n) if f is not None and m["q"].lower() != "another" else ""
 
 
 @rule(r"no opponent controls (?:a|an|any) (?P<f>.+?)")
@@ -897,6 +909,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         who, spec, op, n = args
         pl = _player_for(game, p, who, item)
         return pl is not None and _cmp(_count_perms(pl, spec, source), op, n)
+    if kind == "ctl_all":                   # every player's battlefield
+        spec, op, n = args
+        return _cmp(sum(_count_perms(pl, spec) for pl in game.players), op, n)
     if kind == "ctl_vs":
         spec, op = args
         opp = game.opponent(p)

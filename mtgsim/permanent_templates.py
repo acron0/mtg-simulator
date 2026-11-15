@@ -187,6 +187,40 @@ def keywords(text):
     return parts if parts and all(p in KEYWORDS for p in parts) else None
 
 
+_TRAITS = frozenset((
+    'tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
+    'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored', 'suspected'
+))
+_IRREGULAR = {'elves': 'Elf', 'dwarves': 'Dwarf', 'wolves': 'Wolf'}
+
+
+def _classify(low):
+    """One lowercased selector word -> (bucket, value), or None when unsupported."""
+    if low in _TYPES:
+        return 'type', low
+    if low in _TRAITS:
+        return 'trait', low
+    if low in _COLORS:
+        return 'color', _COLORS[low]
+    if low.startswith('non-') and low[4:] in _SUBTYPE_TYPES:
+        return 'not_subtype', low[4:]
+    if low in _SUBTYPE_TYPES:
+        return 'subtype', low
+    return None
+
+
+def _record(result, bucket, value):
+    result.setdefault({'trait': 'traits', 'color': 'colors', 'not_subtype': 'not_subtypes',
+                       'subtype': 'subtypes'}[bucket], []).append(value)
+
+
+def _singular(word, plural):
+    if not plural:
+        return word
+    low = word.lower()
+    return _IRREGULAR.get(low, word[:-1] if low.endswith('s') and not low.endswith('ss') else word)
+
+
 def selector(text, *, plural=False):
     """Parse a restricted battlefield noun phrase, preserving every constraint."""
     text = text.strip()
@@ -248,37 +282,52 @@ def selector(text, *, plural=False):
                     return None
                 result['keyword'] = [kws[0], m[1].lower() == 'with']
                 text = text[:m.start()]
-    words = text.split()
-    if plural:
-        irregular = {'elves': 'Elf', 'dwarves': 'Dwarf', 'wolves': 'Wolf'}
-        words = [irregular.get(w.lower(), w[:-1] if w.lower().endswith('s') and
-                 not w.lower().endswith('ss') else w) for w in words]
+    words = [_singular(w, plural) for w in text.split()]
     if not words:
         return None
     # Type unions are explicit. Prefix modifiers are intersections.
     if 'or' in [w.lower() for w in words]:
         alts = re.split(r',? or |, ', ' '.join(words).lower())
-        if not all(alt in _TYPES for alt in alts):
-            return None
-        result['types_any'] = alts
+        if all(alt in _TYPES for alt in alts):
+            result['types_any'] = alts
+        else:
+            # A leading modifier distributes over the whole union: "nontoken artifact or creature"
+            # means "nontoken (artifact or creature)". A modifier on a later alternative only
+            # ("artifact or nontoken creature") has no representation, so the phrase stays unread.
+            types, shared = [], None
+            for alt in alts:
+                parts = [_singular(p[:-1], plural) if p.endswith(',') else _singular(p, plural)
+                         for p in alt.split()]
+                kinds = [_classify(p.lower()) for p in parts]
+                if any(kind is None for kind in kinds):
+                    return None
+                alt_types = [value for bucket, value in kinds if bucket == 'type']
+                mods = [(bucket, value) for bucket, value in kinds if bucket != 'type']
+                if len(alt_types) != 1 or any(bucket == 'subtype' for bucket, _ in mods):
+                    return None     # a positive subtype can't distribute over a type union
+                types.append(alt_types[0])
+                if shared is None:
+                    shared = mods
+                elif any(mod not in shared for mod in mods):
+                    return None
+            result['types_any'] = types
+            for bucket, value in shared:
+                _record(result, bucket, value)
     else:
         types = []
         for word in words:
             low = word.lower()
-            if low in _TYPES:
-                types.append(low)
-            elif low in ('tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
-                         'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored',
-                         'suspected'):
-                result.setdefault('traits', []).append(low)
-            elif low in _COLORS:
-                result.setdefault('colors', []).append(_COLORS[low])
-            elif low.startswith('non-') and low[4:] in _SUBTYPE_TYPES:
-                result.setdefault('not_subtypes', []).append(word[4:].lower())
-            elif low in _SUBTYPE_TYPES:
-                result.setdefault('subtypes', []).append(low)
-            else:
+            if low.endswith(','):        # "non-Saga, nonland permanent": commas join modifiers
+                low = _singular(low[:-1], plural).lower()
+                if low in _TYPES:
+                    return None           # a comma-joined type list is not an "or" union
+            kind = _classify(low)
+            if kind is None:
                 return None
+            if kind[0] == 'type':
+                types.append(kind[1])
+            else:
+                _record(result, *kind)
         if not types and not result.get('subtypes'):
             return None
         if types:

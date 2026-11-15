@@ -94,6 +94,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     k = eff.kind
     if k == "copy_spell":
         return max(legal, key=lambda i: i.card.cmc, default=None)
+    if k == "die_roll" and copies.group_model(game, me, eff, None) is not None:     # a group copy's model
+        return copies.group_model(game, me, eff, None)
     if k == "damage" and eff.data.get("spell_controller"):
         return max((i for i in legal if i.controller is opp), key=lambda i: i.card.cmc, default=None)
     if eff.target == "player" and k in ("draw", "gain_life"):
@@ -442,7 +444,9 @@ def respond(game: Game, me: Player):
     protect = regeneration.respond(game, me)
     if protect is not None:
         return protect
-    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)}
+    from ..cx_delayed import pact_affordable
+    options = {c.name: c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)}
     top = game.stack[-1] if game.stack else None
     if top is not None:
         if top.controller is me:
@@ -569,7 +573,9 @@ def respond_extras(game: Game, me: Player):
         if game.step == "declare_blockers":
             return combat_pump(game, me)
         return None
-    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)]
+    from ..cx_delayed import pact_affordable
+    options = [c for c in game.spell_options(me) if c.instant_speed and game.can_cast_now(me, c)
+               and pact_affordable(me, c)]
     if game.step == "declare_attackers" and game.attackers:
         flash_pw = [c for c in options if c.is_planeswalker]
         if flash_pw:

@@ -60,8 +60,6 @@ class Parse(unittest.TestCase):
     def test_refusals(self):
         for text in (
                 "Exile ~, then return it to the battlefield face down under its owner's control.",
-                # "it" names different things per trigger event (#458)
-                "Exile it, then return it to the battlefield under its owner's control.",
                 "Exile target creature, then return it to the battlefield under its owner's control with X +1/+1 "
                 "counters on it, where X is the number of lands you control.",
                 "Exile ~, then return it to the battlefield attached to target creature.",
@@ -79,9 +77,11 @@ class Parse(unittest.TestCase):
         fishing = db.get("Lake-town Mariners // Gone Fishing").adventure
         self.assertEqual(fishing.unsupported, [])
         self.assertEqual([e.kind for e in fishing.spell_effects], ["blink", "blink"])
-        # still partial: "face down", and "it" in a combat-damage trigger (#458)
+        # still partial: "face down"
         self.assertTrue(db.get("Shorecrasher Elemental").unsupported)
-        self.assertTrue(db.get("Gossip's Talent").unsupported)
+        # "exile it, then return it": the creature the ally trigger is about, ~ under a self head (#458)
+        for name in ("Gossip's Talent", "Jecht, Reluctant Guardian // Braska's Final Aeon"):
+            self.assertEqual(db.get(name).unsupported, [], name)
 
 
 class Base(unittest.TestCase):
@@ -261,6 +261,90 @@ class AIChoices(Base):
             order.append(next(i for i, m in enumerate(modes) if m and effects and m[0] is effects[0]))
         self.assertEqual(order[-1], 3)          # "Exile ~, then return it under an opponent's control"
         self.assertEqual(sorted(order), [0, 1, 2, 3])
+
+
+BATCH = card("Test Batch", "{1}", "Enchantment", "Whenever one or more creatures you control enter, you gain 1 life.")
+
+
+class Simultaneous(Base):
+    def test_counted_targets_return_together(self):
+        self.perm(BATCH, self.a)
+        one, two = self.perm(ETB, self.a), self.perm(ETB, self.a)
+        life = self.a.life
+        self.a.hand = [FLICKER2]
+        self.assertTrue(self.game.cast(self.a, FLICKER2, [one, two]))
+        self.game.settle()
+        # two enters abilities (+4), one "one or more creatures enter" batch (+1), not two
+        self.assertEqual(self.a.life, life + 5)
+        self.assertEqual(len(self.named(self.a, "Test Etb")), 2)
+
+    def test_any_number_return_together(self):
+        self.perm(BATCH, self.a)
+        one, two = self.perm(ETB, self.a), self.perm(ETB, self.a)
+        life = self.a.life
+        self.game.stack.append(StackItem(self.a, list(MANY.spell_effects), [(one, two)], card=MANY, name=MANY.name))
+        self.game.settle()
+        self.assertEqual(self.a.life, life + 5)
+
+    def test_an_illegal_slot_does_not_stop_the_other(self):
+        one, two = self.perm(ETB, self.a), self.perm(ETB, self.a)
+        life = self.a.life
+        self.game.stack.append(StackItem(self.a, list(FLICKER2.spell_effects), [one, two], card=FLICKER2,
+                                         name=FLICKER2.name))
+        self.a.battlefield.remove(two)            # gone before resolution
+        self.game.settle()
+        self.assertEqual(self.a.life, life + 2)
+
+
+@unittest.skipUnless(DB.exists(), "card database not built")
+class ExileIt(unittest.TestCase):
+    """"Exile it, then return it": the ally creature (Gossip's Talent), or ~ itself (Jecht)."""
+    def setUp(self):
+        from tests.test_combat_triggers import Scripted
+        self.db = CardDB(offline=True)
+        self.a, self.b = Player("a", [], Scripted()), Player("b", [], Scripted())
+        self.game = Game(self.a, self.b, random.Random(0))
+        self.game.turn, self.game.step, self.game.active_idx = 3, "main1", 0
+        for p in (self.a, self.b):
+            p.library = [ISLAND] * 10
+            p.ai.attack, p.ai.block = (), {}
+
+    def put(self, c):
+        perm = self.game.enter_battlefield(self.a, c)
+        perm.sick = False
+        self.game.settle()
+        return perm
+
+    def attack(self, *attackers):
+        self.a.ai.attack = list(attackers)
+        self.game.combat(self.a, self.b)
+        self.game.settle()
+
+    def test_gossips_talent_blinks_the_creature_that_hit(self):
+        talent = self.put(self.db.get("Gossip's Talent"))
+        talent.counters["level"] = 3
+        goblin = self.put(ETB)
+        life = self.a.life
+        self.attack(goblin)
+        new = [x for x in self.a.battlefield if x.card.name == "Test Etb"]
+        self.assertEqual(len(new), 1)
+        self.assertIsNot(new[0], goblin)
+        self.assertEqual(self.a.life, life + 2)
+
+    def test_gossips_talent_keeps_a_token(self):
+        talent = self.put(self.db.get("Gossip's Talent"))
+        talent.counters["level"] = 3
+        token = self.put(TOKEN)
+        self.attack(token)
+        self.assertIn(token, self.a.battlefield)
+
+    def test_jecht_blinks_itself_transformed(self):
+        jecht = self.put(self.db.get("Jecht, Reluctant Guardian // Braska's Final Aeon"))
+        self.attack(jecht)
+        new = [x for x in self.a.battlefield if x.front is jecht.front]
+        self.assertEqual(len(new), 1)
+        self.assertIsNot(new[0], jecht)
+        self.assertEqual(new[0].card.name, "Braska's Final Aeon")
 
 
 if __name__ == "__main__":

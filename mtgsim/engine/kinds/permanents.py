@@ -590,6 +590,27 @@ def oring_group(game, p, eff, item, **_):
     if isinstance(src, Permanent) and src in src.controller.battlefield:
         game.exile_until_leaves(src, [x for pl in game.players for x in pl.battlefield
                                       if x is not src and matches(game, x, eff.data["selector"], p, src)])
+        if matches(game, src, eff.data["selector"], p, src):
+            # the source is one of them: it is exiled too, which ends the duration it set at once, so the
+            # others return right away (rule 610.3)
+            game.leave_battlefield(src, "exile")
+
+
+@kind("oring_choose")
+def oring_choose(game, p, eff, item, **_):
+    """"Exile a land you control until ~ leaves the battlefield" (Wormfang Newt): no target; the controller picks
+    one of its own (the default AI: a permanent that gains from re-entering, else its least valuable)."""
+    from ...permanent_templates import matches
+
+    def _rewards_entry(x):
+        return bool(x.card.etb_effects or any(t.event == "etb" for t in x.card.triggers))
+    src = item.source if item is not None else None
+    if not isinstance(src, Permanent) or src not in src.controller.battlefield:
+        return
+    pool = [x for x in p.battlefield if x is not src and matches(game, x, eff.data["selector"], p, src)]
+    if pool:
+        gains = [x for x in pool if not x.card.is_token and _rewards_entry(x)]
+        game.exile_until_leaves(src, [max(gains, key=perm_value) if gains else min(pool, key=perm_value)])
 
 
 @kind("token_copy")

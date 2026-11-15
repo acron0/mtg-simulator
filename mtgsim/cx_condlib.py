@@ -40,6 +40,17 @@ def _n(word: str) -> int:
     return int(word) if word.isdigit() else _WORDS[word]
 
 
+def _paid(item, source):
+    """Whose payment a mana-spent condition reads: the resolving spell, else the spell a trigger fired on ("When you
+    cast this spell, if {C} was spent to cast it": the context), else the permanent the spell became."""
+    if getattr(item, "is_spell", False):
+        return item
+    ctx = getattr(item, "context", None)
+    if getattr(ctx, "is_spell", False):
+        return ctx
+    return source
+
+
 def _tuple(x):
     """A quantity spec back from its JSON list form (nested lists become tuples)."""
     return tuple(_tuple(v) for v in x) if isinstance(x, list) else x
@@ -742,6 +753,14 @@ def _spent_color(m):
     return _code("spent_color", m["c"].upper())
 
 
+@rule(r"\{C\} (?P<neg>was|wasn't) spent to cast (?:~|it|this spell)")
+def _spent_colorless(m):
+    """"if {C} was / wasn't spent to cast it" (Drowner of Truth, Wumpus Aberration): colourless mana paid part of
+    the spell. Read from the payment's per-type counts, as "at least N colorless mana" is."""
+    code = _code("mana_color", "C", 1)
+    return code if m["neg"] == "was" else _code("not", code)
+
+
 @rule(r"~ is (?:a|an) (?P<f>[\w ,/-]+?)")
 def _src_is(m):
     """"If ~ is an enchantment" (Theros gods' and Enduring creatures' own type now)."""
@@ -1092,7 +1111,7 @@ def check(game, p, code: str, item=None, source=None, prev=None):
             return spell is not None and game.active is p and game.step in ("main1", "main2")
         if kind == "cast_zone":
             return getattr(spell if spell is not None else source, "cast_zone", None) == args[0]
-        return args[0] in getattr(spell if spell is not None else source, "mana_colors", ())
+        return args[0] in getattr(_paid(item, source), "mana_colors", ())
     if kind == "unless_unpaid":          # "B unless <payer> pays ...": the cx_unless just before B wasn't paid
         return not getattr(item, "cx_unless_paid", False)
     if kind == "ref_is":
@@ -1215,12 +1234,12 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         n = prev.card.cmc if args[0] == "mana value" else getattr(prev, args[0], 0)
         return n <= game.x_quantity(p, _tuple(args[1]), item, prev)
     if kind in ("mana_same", "mana_ncolors"):
-        src = item if getattr(item, "is_spell", False) else source
+        src = _paid(item, source)
         if kind == "mana_ncolors":
             return len(set(getattr(src, "mana_colors", ())) & set("WUBRG")) >= args[0]
         return max((n for c, n in getattr(src, "mana_by_color", {}).items() if c in "WUBRG"), default=0) >= args[0]
     if kind == "mana_color":
-        src = item if getattr(item, "is_spell", False) else source
+        src = _paid(item, source)
         return getattr(src, "mana_by_color", {}).get(args[0], 0) >= args[1]
     if kind == "x":
         x = getattr(item, "x", None)

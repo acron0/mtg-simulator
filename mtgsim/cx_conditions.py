@@ -29,7 +29,8 @@ _CONDS = [
     (r"you control no untapped lands", "cx:no_untapped_lands"),
     (r"you control (another )?(?:an? )?(white|blue|black|red|green) (creature|permanent)", "cx:ctrl_color:{0}:{1}:{2}"),
     (r"you control (another )?(?:an? )?((?:artifact|[A-Z]\w+))( planeswalker)?", "cx:ctrl_kind:{0}:{1}:{2}"),
-    (r"an opponent controls an? (?:nontoken )?(white|blue|black|red|green) permanent", "cx:opp_ctrl_color:{0}"),
+    (r"an opponent controls an? nontoken (white|blue|black|red|green) permanent", "cx:opp_ctrl_color:{0}:nontoken"),
+    (r"an opponent controls an? (white|blue|black|red|green) permanent", "cx:opp_ctrl_color:{0}"),
     (r"you have " + _N + r" or more cards in (?:your )?hand", "cx:hand>={0}"),
     (r"(?:~|it) is attacking|it's attacking", "attacking"),
     (r"it's your turn", "your_turn"),
@@ -147,7 +148,9 @@ def holds(perm, cond: str) -> bool:
         return any(x.attached_to is perm for x in c.battlefield)
     if name == "opp_ctrl_color":
         game = getattr(c, "_game", None)
-        return game is not None and any(_COLORS[rest] in x.card.colors for x in game.opponent(c).battlefield)
+        color, _, token = rest.partition(":")      # "nontoken red permanent": tokens don't count
+        return game is not None and any(_COLORS[color] in x.card.colors and not (token and x.card.is_token)
+                                        for x in game.opponent(c).battlefield)
     if name == "no_untapped_lands":
         return not any(x.card.is_land and not x.tapped for x in c.battlefield)
     others = [x for x in c.battlefield]

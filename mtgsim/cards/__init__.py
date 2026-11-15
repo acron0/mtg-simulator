@@ -249,3 +249,5 @@ _SUBS += _time_counters.SUBS
 from .. import capped_counters as _capped_counters
 _EFFECT_PATTERNS += _capped_counters.EFFECT_PATTERNS
 _SUBS += _capped_counters.SUBS
+from .. import card_referent as _card_referent
+_EFFECT_PATTERNS += _card_referent.EFFECT_PATTERNS

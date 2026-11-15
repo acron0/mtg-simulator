@@ -291,6 +291,17 @@ class CostsMixin:
         if kind == "party":
             # "where X is the number of creatures in your party" (Acquisitions Expert)
             return self.party_size(p)
+        if kind == "card":
+            # "equal to that card's mana value" (card_referent, #313): the card the previous effect moved,
+            # frozen on the stack item when it moved
+            from ..referent import card_stat
+            return max(0, int(card_stat(item, spec[1]) or 0))
+        if kind == "discarded":
+            # "the discarded card's mana value": the card discarded to pay the spell's or ability's cost
+            stats = getattr(item, "discarded_stats", None)
+            if stats is None and src is not None:
+                stats = getattr(src, "last_discarded", None)
+            return _stat_of(stats, spec[1])
         if kind == "exiled_gy":
             # "Damage equal to the exiled card's power" (Molten-Tail Masticore, Corpse Lunge):
             # the card exiled from the graveyard as a cost — item.exiled_gy_stats (spell cost,

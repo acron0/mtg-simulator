@@ -453,6 +453,7 @@ class AbilitiesMixin:
             if card not in p.hand:
                 return False
             self.discard_card(p, card)
+            perm.last_discarded = (int(card.power or 0), int(card.toughness or 0), card.cmc)  # ("discarded", stat)
             self.log(f"discards {card.name}", p)
         if c.get("remove_counter"):
             count = c.get('remove_counter_count', 1)

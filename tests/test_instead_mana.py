@@ -55,6 +55,18 @@ class Tron(Base):
         self.assertTrue(payable(self.a.battlefield, {"generic": 9}))     # Mines 2 + 2, Plant 2, Tower 3
         self.assertFalse(payable(self.a.battlefield, {"generic": 10}))
 
+    def test_other_condition_families(self):
+        # conditions outside cx_condlib (the initiative, "power 4 or greater") are checked the engine's usual way
+        tome = self.perm(self.db.get("Sarevok's Tome"), self.a)
+        self.assertFalse(payable([tome], {"generic": 2}))
+        self.game.initiative = self.a
+        self.assertTrue(payable([tome], {"generic": 2}))
+        self.assertFalse(payable([tome], {"generic": 3}))
+        druid = self.perm(self.db.get("Raucous Audience"), self.a)
+        self.assertFalse(payable([druid], {"G": 2}))
+        self.perm(card("Test Giant", "{4}", "Creature — Giant", "", 4, 4), self.a)
+        self.assertTrue(payable([druid], {"G": 2}))
+
     def test_worker_cycle(self):
         mine, plant, tower = (self.perm(self.db.get(n), self.a) for n in ("Mine Worker", "Power Plant Worker",
                                                                           "Tower Worker"))

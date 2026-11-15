@@ -29,18 +29,20 @@ def parse_conditional(line: str):
     m = re.fullmatch(r"\{T\}: Add ((?:\{([WUBRGC])\})+)\. If (.+?), add ((?:\{([WUBRGC])\})+) instead\.", line)
     if not m or m[2] != m[5] or {*re.findall(r"[WUBRGC]", m[1] + m[4])} != {m[2]}:
         return None
-    from .cx_condlib import parse
-    code = parse(m[3])
+    from .cards.clauses import _if_cond
+    code = _if_cond(m[3])
     base, more = m[1].count("{"), m[4].count("{")
     return (m[2], base, ("cond", code, base, more)) if code and more > base else None
 
 
 def dynamic_amount(perm) -> int:
     kind = perm.card.mana_dyn
-    if kind[0] == "cond":
-        from .cx_condlib import check
-        game = perm.controller._game
-        return kind[3] if check(game, perm.controller, kind[1], source=perm) else kind[2]
+    if kind[0] == "cond":       # the condition as an effect of this permanent's ability would check it
+        from .cards import Effect
+        from .engine.state import StackItem
+        game, p = perm.controller._game, perm.controller
+        item = StackItem(p, [], [], source=perm, name=perm.card.name, kind="trigger")
+        return kind[3] if game.check_cond(p, Effect("condition", cond=kind[1]), item, None) else kind[2]
     if kind[0] == "power":
         return max(0, perm.power)
     if kind[0] == "counters":

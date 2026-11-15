@@ -23,8 +23,24 @@ def parse_dynamic(text: str) -> tuple:
     return ()
 
 
+def parse_conditional(line: str):
+    """(colour, base amount, mana_dyn) for "{T}: Add {C}. If C, add {C}{C} instead.", or None: the same colour
+    either way, more of it while the condition holds (checked when the mana is made or counted)."""
+    m = re.fullmatch(r"\{T\}: Add ((?:\{([WUBRGC])\})+)\. If (.+?), add ((?:\{([WUBRGC])\})+) instead\.", line)
+    if not m or m[2] != m[5] or {*re.findall(r"[WUBRGC]", m[1] + m[4])} != {m[2]}:
+        return None
+    from .cx_condlib import parse
+    code = parse(m[3])
+    base, more = m[1].count("{"), m[4].count("{")
+    return (m[2], base, ("cond", code, base, more)) if code and more > base else None
+
+
 def dynamic_amount(perm) -> int:
     kind = perm.card.mana_dyn
+    if kind[0] == "cond":
+        from .cx_condlib import check
+        game = perm.controller._game
+        return kind[3] if check(game, perm.controller, kind[1], source=perm) else kind[2]
     if kind[0] == "power":
         return max(0, perm.power)
     if kind[0] == "counters":

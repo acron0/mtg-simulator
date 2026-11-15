@@ -118,7 +118,7 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         if killable:
             return max(killable, key=perm_value)
         return opp if eff.target in ("any", "player") else None
-    if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
+    if k in ("bite_src", "ref_bite") or eff.data.get("bite_run"):          # referent damage: "... deals damage equal to its power to ..."
         from ..cx_grammar_bite import choose as bite_choose
         return bite_choose(game, me, eff)
     if eff.data.get("ref_amount"):     # a target only for an amount ("equal to target creature's power"): the largest

@@ -229,6 +229,12 @@ def _quantity(text: str):
     text = text.strip()
     if re.fullmatch(r"(?:the number of opponents|opponent) you have", text, re.I):
         return _OPPONENTS
+    if re.fullmatch(r"(?:the number of )?colors? of mana spent to cast ~", text, re.I):
+        return ("cxq", "converge")          # converge: the spell's own payment (cx_grammar_quantity)
+    if re.fullmatch(r"the amount of mana spent to cast ~", text, re.I):
+        return ("cxq", "mana_amount")
+    if re.fullmatch(r"the amount of mana spent to cast that spell", text, re.I):
+        return ("spell", "mana_spent")      # a cast trigger's spell (Game.x_quantity)
     m = re.fullmatch(r"your devotion to (white|blue|black|red|green)(?: and (white|blue|black|red|green))?", text, re.I)
     if m:
         return ("devotion", tuple(_COLOR_LETTERS[c.lower()] for c in m.groups() if c))

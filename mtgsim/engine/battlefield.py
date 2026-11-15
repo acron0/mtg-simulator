@@ -195,6 +195,9 @@ class BattlefieldMixin:
         if card.advanced_rules.get("cx_etb_if"):
             from .. import cx_replace
             cx_replace.entry_counters(self, p, perm)
+        if card.advanced_rules.get("cx_etb_q"):       # "... for each mana spent to cast it" (cx_replace)
+            from .. import cx_replace
+            cx_replace.entry_spent_counters(self, perm)
         if card.entry_counter_quantity:
             from ..backlog_templates import amount
             kind, spec = card.entry_counter_quantity

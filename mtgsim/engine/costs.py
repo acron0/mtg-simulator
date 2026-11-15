@@ -226,6 +226,11 @@ class CostsMixin:
             card = spell.card if isinstance(spell, StackItem) else None
             if card is None:
                 return 0
+            if spec[1] == "mana_spent":         # "the amount of mana spent to cast that spell"
+                from ..cx_grammar_quantity import spent_amount
+                return spent_amount(spell)
+            if spec[1] == "converge":           # "... colors of mana spent to cast that spell"
+                return len(set(getattr(spell, "mana_colors", ())) & set("WUBRG"))
             if spec[1] == "colors":
                 return len(card.colors)
             if spec[1] == "generic":

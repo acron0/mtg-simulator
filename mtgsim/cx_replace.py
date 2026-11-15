@@ -6,6 +6,8 @@
 * "If ~ would die, exile it instead." and "If <subject> would die, exile it instead." with the subject
   grammar of the trigger-event library ("a creature an opponent controls", "another nontoken creature").
   Engine: one replacement in ``rules_events.zone_destination``.
+* "If ~ would die, put it on top of / on the bottom of its owner's library / return it to its owner's hand
+  instead." Engine: another replacement in ``rules_events.zone_destination``.
 * "If you would draw a card[ except the first one you draw in each of your draw steps], draw N cards
   instead." Engine: ``extra_draws`` from ``Game.draw``.
 * Two-player choices: "As ~ enters, choose an opponent." names the only opponent, so the line needs no
@@ -50,6 +52,12 @@ def parse_line(line: str, st) -> bool:
         return True
     if line == "If ~ would die, exile it instead.":
         _rules(st)["cx_exile_self"] = True
+        return True
+    m = re.fullmatch(r"If ~ would die, (put it on top of|put it on the bottom of|return it to) its owner's "
+                     r"(library|hand) instead\.", line)
+    if m and (m[2] == "hand") == m[1].startswith("return"):     # Gravebane Zombie, Nissa's Chosen (#407)
+        _rules(st)["cx_die_dest"] = {"put it on top of": "library_top", "put it on the bottom of": "library_bottom",
+                                     "return it to": "hand"}[m[1]]
         return True
     m = re.fullmatch(r"If (an? .+?|another .+?) would die, exile it instead\.", line)
     if m:
@@ -134,6 +142,11 @@ def exiles(game, perm) -> bool:
                 if spec is not None and x is perm and not spec["other"] and _subject_ok(game, spec, x, perm):
                     return True
     return False
+
+
+def die_destination(perm):
+    """Where "If ~ would die, put it ... instead" sends this dying creature, or None."""
+    return _rules_of(perm).get("cx_die_dest") if perm.is_creature else None
 
 
 def extra_draws(game, p, replaced) -> int:

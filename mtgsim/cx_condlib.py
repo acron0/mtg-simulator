@@ -142,6 +142,11 @@ def _filter(text: str, plural: bool = True):
     if colors:
         spec["any_color"] = [_COLORS[colors[1]], _COLORS[colors[2]]]
         text = colors[3]
+    subs = re.fullmatch(r"([A-Z][a-z]+) or ([A-Z][a-z]+)", text)
+    if subs:                    # "a Wolf or Werewolf" (#341): either creature type
+        from .permanent_templates import _CREATURE_SUBTYPES
+        if all(_IRREG_SUB.get(w.lower(), w.lower()) in _CREATURE_SUBTYPES for w in subs.groups()):
+            return {"any_sub": [w for w in subs.groups()]}
     any_of = re.fullmatch(r"(\w+) (?:and/or|or) (\w+)( .+)?", text)
     if any_of and any_of[1].lower().rstrip("s") in _TYPES + ("sorcerie",) and \
             any_of[2].lower().rstrip("s") in _TYPES + ("sorcerie",):
@@ -158,6 +163,9 @@ def _filter(text: str, plural: bool = True):
         if not _word_spec(word, spec, plural):
             return None
     return spec
+
+
+_IRREG_SUB: dict = {}
 
 
 def _is_basic(card) -> bool:
@@ -185,6 +193,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     if "any" in spec and not any(has_type(t) for t in spec["any"]):
         return False
     if any(s not in subs for s in spec.get("sub", ())):
+        return False
+    if spec.get("any_sub") and not (set(spec["any_sub"]) & subs or card.changeling):
         return False
     if spec.get("colors") and not all(c in card.colors for c in spec["colors"]):
         return False
@@ -407,6 +417,13 @@ def _small_library(m):
 def _opp_more(m):
     f = _filter(m["f"])
     return _code("ctl_vs", f, "<") if f is not None else ""
+
+
+@rule(rf"(?:an opponent|defending player) controls at least (?P<n>{_NUM}) more (?P<f>.+?) than you")
+def _opp_more_by(m):
+    """"an opponent controls at least four more creatures than you" (Avatar of Might, #341)."""
+    f = _filter(m["f"])
+    return _code("ctl_more", f, _n(m["n"])) if f is not None else ""
 
 
 @rule(r"you control more (?P<f>.+?) than (?:an opponent|defending player|that player|each opponent)")
@@ -951,6 +968,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         who, spec, op, n = args
         pl = _player_for(game, p, who, item)
         return pl is not None and _cmp(_count_perms(pl, spec, source), op, n)
+    if kind == "ctl_more":                  # the opponent controls at least n more than p
+        spec, n = args
+        return _count_perms(game.opponent(p), spec) - _count_perms(p, spec) >= n
     if kind == "ctl_all":                   # every player's battlefield
         spec, op, n = args
         return _cmp(sum(_count_perms(pl, spec) for pl in game.players), op, n)

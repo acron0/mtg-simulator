@@ -113,6 +113,9 @@ class PlayMixin:
         if not self.valid_action_targets(p, effects, targets, card):
             return False
         cost = self.cost_of(p, card, assist=False)
+        if card.advanced_rules.get("target_cost"):    # "costs {2} less to cast if it targets a black permanent"
+            from ..cx_static_cost import target_cost
+            cost, targets = target_cost(self, p, card, effects, targets)
         if card.advanced_rules.get("strive"):        # "costs {1}{W} more for each target beyond the first"
             from ..cx_multi_target import strive_cost
             cost, targets = strive_cost(self, p, card, effects, targets, cost)

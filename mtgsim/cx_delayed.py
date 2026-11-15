@@ -1,4 +1,4 @@
-"""Delayed actions "at the beginning of the next end step":
+"""Delayed actions "at the beginning of the next end step" (and, #344, of other steps):
 
     Exile it at the beginning of the next end step.                    (a token, a reanimated creature, the target)
     At the beginning of the next end step, sacrifice it.               Its controller sacrifices it at ...
@@ -13,13 +13,38 @@ The rider turns the sentence into ``cx_delay``, which, as the ability resolves, 
 ``cx_delayed_do`` on ``game.delayed_end_step`` with them as context. "It" is the ability's last target, or else the
 newest permanent that entered while the ability resolved (a token, a reanimated or put-onto-the-battlefield card);
 "them" and "the tokens" are all the permanents that entered while it resolved. A returned card is the exiled card
-of the target (or of ~); it comes back only if it is still in exile."""
+of the target (or of ~); it comes back only if it is still in exile.
+
+Other timings (#344) keep the same actions but wait in ``game.cx_delayed_at`` until their step really begins
+(``at_step``, called from the turn structure):
+
+    at the beginning of the next turn's upkeep / the next upkeep    the next upkeep of any player
+    at the beginning of your next upkeep                            the controller's next upkeep
+    at the beginning of their / that player's next upkeep           that player's (fixed as the ability resolves)
+    at the beginning of your next end step                          the next end step of the controller's turn
+    at the beginning of your / the next main phase this turn        this turn's next main phase, if one is left
+    at the beginning of the next cleanup step                       the next cleanup step
+
+"At the beginning of your next upkeep, pay {C}. If you don't, you lose the game." (the Pacts) is a delayed
+``cx_pact``: the controller pays if it can, else loses."""
 from __future__ import annotations
 
 import dataclasses
 import re
 
-_WHEN = r"at the beginning of (?:the|your) next end step"
+_WHEN = (r"at the beginning of (?:the next end step|your next end step|the next turn's upkeep|the next upkeep|"
+         r"your next upkeep|(?:their|that player's) next upkeep|(?:your|the) next main phase this turn|"
+         r"the next cleanup step)")
+_TIMING = [("the next end step", "end"), ("your next end step", "end_you"), ("the next turn's upkeep", "upkeep"),
+           ("the next upkeep", "upkeep"), ("your next upkeep", "upkeep_you"), ("their next upkeep", "upkeep_that"),
+           ("that player's next upkeep", "upkeep_that"), ("next main phase this turn", "main"),
+           ("the next cleanup step", "cleanup")]
+
+
+def _timing(s: str) -> str:
+    low = s.lower()
+    return next(t for words, t in _TIMING if "beginning of " + words in low or
+                words.startswith("next main") and words in low)
 _ONE = (r"it|~|this creature|that creature|that token|the token|that card|the creature|that artifact|the artifact|"
         r"that permanent|that vehicle|that dragon|the exiled card")
 _MANY = r"them|the tokens|those tokens|the [a-z]+ tokens"
@@ -78,6 +103,8 @@ def parse_rider(sentence: str, effects: list) -> bool:
     permanent that entered while the ability resolved gains haste."""
     global _BUSY
     s = sentence.strip().rstrip(".")
+    if not _BUSY and _pact_rider(s, effects):
+        return True
     if _BUSY or not (_HASTE.fullmatch(s) or re.search(_WHEN, s, re.I)):
         return False
     from .cards.parse import _parse_effects
@@ -95,6 +122,9 @@ def parse_rider(sentence: str, effects: list) -> bool:
     m = re.fullmatch(rf"(?P<a>.+?) {_WHEN}", s, re.I) or re.fullmatch(rf"{_WHEN}, (?P<a>.+)", s, re.I)
     if not m:
         return False
+    at = _timing(s)
+    if at == "upkeep_that":
+        return False        # the player is not read yet
     body = m["a"]
     eff = action(body)
     if eff is None:
@@ -110,10 +140,31 @@ def parse_rider(sentence: str, effects: list) -> bool:
             eff = dataclasses.replace(eff, cond=next(iter(conds)),
                                       data=dict(eff.data, effects=[dataclasses.replace(e, cond="") for e in new]))
     if effects and effects[-1].kind == "token" and eff.data["op"] in ("exile", "sacrifice") and \
-            eff.data["who"] != "self":
+            eff.data["who"] != "self" and at == "end":
         return False                  # the token line's own "end" rider (cards/parse.py)
+    if at != "end":
+        eff = dataclasses.replace(eff, data=dict(eff.data, at=at))
     effects.append(eff)
     return True
+
+
+_PACT = re.compile(r"at the beginning of your next upkeep, pay (?P<c>(?:\{[0-9WUBRG]\})+)", re.I)
+
+
+def _pact_rider(s: str, effects: list) -> bool:
+    """"At the beginning of your next upkeep, pay {2}{B}." + "If you don't, you lose the game." (two sentences)."""
+    m = _PACT.fullmatch(s)
+    if m:
+        from .cards.model import parse_mana_cost
+        effects.append(_effect("cx_delay", data={"op": "effects", "who": "none", "at": "upkeep_you", "pact_open": True,
+                                                 "effects": [_effect("cx_pact", data={"cost": parse_mana_cost(m["c"])})]}))
+        return True
+    if re.fullmatch(r"if you don't, you lose the game", s, re.I) and effects and \
+            effects[-1].kind == "cx_delay" and effects[-1].data.get("pact_open"):
+        data = {k: v for k, v in effects[-1].data.items() if k != "pact_open"}
+        effects[-1] = dataclasses.replace(effects[-1], data=data)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +187,7 @@ def schedule(game, p, eff, prev, item):
     op, who = data["op"], data["who"]
     source = item.source if item is not None else None
     if op == "effects":
-        game.delayed_end_step.append((p, list(data["effects"]), source, None))
+        _store(game, p, data, list(data["effects"]), source, None)
         return
     if op == "battlefield":
         perm = prev if isinstance(prev, Permanent) else source if who != "fresh" else None
@@ -154,7 +205,53 @@ def schedule(game, p, eff, prev, item):
         objs = [prev] if isinstance(prev, Permanent) else fresh[-1:]
     if not objs:
         return
-    game.delayed_end_step.append((p, [_effect("cx_delayed_do", data=dict(data))], source, tuple(objs)))
+    _store(game, p, data, [_effect("cx_delayed_do", data=dict(data))], source, tuple(objs))
+
+
+def _store(game, p, data, effects, source, context):
+    at = data.get("at", "end")
+    if at == "end":
+        game.delayed_end_step.append((p, effects, source, context))
+        return
+    if not hasattr(game, "cx_delayed_at"):
+        game.cx_delayed_at = []
+    game.cx_delayed_at.append({"at": at, "controller": p, "effects": effects, "source": source, "context": context,
+                               "turn": game.turn, "step": game.step})
+
+
+_STEP = {"upkeep": ("upkeep", "upkeep_you"), "end": ("end_you",), "main2": ("main",), "cleanup": ("cleanup",)}
+
+
+def at_step(game, step: str, active) -> None:
+    """The turn structure reached ``step`` of ``active``'s turn: queue the delayed triggers waiting for it."""
+    waiting = getattr(game, "cx_delayed_at", None)
+    if not waiting:
+        return
+    keep = []
+    for d in waiting:
+        at = d["at"]
+        due = at in _STEP.get(step, ()) and (not at.endswith("_you") or active is d["controller"])
+        if at == "main" and d["turn"] != game.turn:
+            continue                    # "this turn": no main phase was left
+        if at == "main" and d["step"] in ("main2", "end_step", "cleanup"):
+            continue
+        if due:
+            game.queue_trigger(d["controller"], d["effects"], d["source"], "delayed trigger", context=d["context"])
+        else:
+            keep.append(d)
+    game.cx_delayed_at = keep
+
+
+def pact(game, p, eff, item):
+    """Pay the Pact's cost if possible (the AI always does), else lose the game."""
+    cost = dict(eff.data["cost"])
+    if game.can_pay(p, cost) and game.pay(p, cost) is not None:
+        game.log("pays the Pact", p)
+        return
+    if not p.lost:
+        game.log("can't pay the Pact and loses the game", p)
+        game.audit("loss", seat=game.players.index(p), cause="didn't pay a Pact")
+        p.lost = True
 
 
 def _return(game, p, card, data):
@@ -194,3 +291,19 @@ def fresh_grant(game, p, eff, prev, item):
     perm = prev if isinstance(prev, Permanent) else (_fresh(game, item)[-1:] or [None])[0]
     if isinstance(perm, Permanent) and perm in perm.controller.battlefield:
         game.resolve(p, _effect("grant", data={"keyword": eff.data["keyword"]}), perm, item)
+
+
+def pact_affordable(me, card) -> bool:
+    """AI policy: cast a Pact only when the mana sources it controls could pay its upkeep cost (they untap first);
+    otherwise the delayed trigger loses the game."""
+    costs = [d.data["cost"] for e in getattr(card, "spell_effects", ()) if e.kind == "cx_delay"
+             for d in e.data.get("effects", ()) if d.kind == "cx_pact"]
+    if not costs:
+        return True
+    sources = [x for x in me.battlefield if x.card.produces and not x.card.is_token]
+    for cost in costs:
+        if len(sources) < sum(cost.values()):
+            return False
+        if any(sum(1 for x in sources if col in x.card.produces) < n for col, n in cost.items() if col != "generic"):
+            return False
+    return True

@@ -13,6 +13,12 @@ def animate(game, p, eff, target, **_):
         return
     d = eff.data
     eot = d["eot"]
+    if d.get("subtypes_only"):
+        _subtypes_only(game, target, d, eot)
+        return
+    if d.get("types_only"):         # "becomes an artifact in addition to its other types"
+        game.add_continuous_effect(target, "add_types", types=set(d["types"]), until_eot=eot)
+        return
     if "pt" in d:
         target.animated = Activated("animate", {}, d["pt"][0], d["pt"][1], frozenset(d.get("keywords", ())),
                                     subtypes=frozenset(d["subtypes"]), text="" if eot else "permanent")
@@ -32,3 +38,22 @@ def animate(game, p, eff, target, **_):
         else:
             subtypes |= {s for s in target.card.subtypes}
     game.add_continuous_effect(target, "set_types", types=types, subtypes=subtypes, until_eot=eot)
+
+
+def _subtypes_only(game, target, d, eot):
+    """"becomes a Dragon [with base power and toughness 4/4]": a creature's creature types are replaced (or added
+    to, "in addition to its other types"); its card types stay. A noncreature can't have creature types, so
+    nothing happens to it (rule 205.3d)."""
+    from ...cards import Activated
+    from ...permanent_templates import _SUBTYPE_TYPES
+    if not target.is_creature:
+        return
+    new = set(d["subtypes"])
+    if "pt" in d:
+        target.animated = Activated("animate", {}, d["pt"][0], d["pt"][1], frozenset(d.get("keywords", ())),
+                                    subtypes=frozenset(new), text="" if eot else "permanent")
+    if d.get("addition"):
+        game.add_continuous_effect(target, "add_subtypes", subtypes=new, until_eot=eot)
+        return
+    kept = {s for s in target.card.subtypes if "creature" not in _SUBTYPE_TYPES.get(s.lower(), ("creature",))}
+    game.add_continuous_effect(target, "set_subtypes", subtypes=new | kept, until_eot=eot)

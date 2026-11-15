@@ -8,7 +8,7 @@ EFFECT_PATTERNS = wordings.patterns("batch2") + [
     (r"(that|target) (?:player|opponent) loses half their life, rounded (up|down)",
      lambda m: _e("lose_half", target="that_player" if m[1] == "that" else "player", data={"up": m[2] == "up"})),
     (r"(each opponent|defending player|target player|target opponent|each player) gets? (a|one|two|three|\d+) poison counters?",
-     lambda m: _e("poison", _num(m[2]), target="player" if m[1].startswith("target") else "that_player" if m[1].startswith("def") else "each_opponent" if m[1] == "each opponent" else "each_player")),
+     lambda m: _poison(m[1].lower(), _num(m[2]))),
     (r"destroy all (non\w+) creatures", lambda m: _e("destroy_group", data={"types": "Creature", "not": m[1][3:].title()})),
     (r"destroy all (plains|islands|swamps|mountains|forests)",
      lambda m: _e("destroy_group", data={"sub": m[1][:-1].title()})),
@@ -134,3 +134,11 @@ def haunt_card(game, owner, card):
     game.move_card(card, owner.graveyard, owner.exile, reason="haunt")
     host.haunters = list(getattr(host, "haunters", ())) + [(owner, card)]
     game.log(f"{card.name} haunts {host.card.name}", owner)
+
+
+def _poison(who, n):
+    """The player words decide who gets the counters (the sentence may start with a capital: "Each opponent ...")."""
+    if who.startswith("target"):
+        return _e("poison", n, target="player", filter="opp" if who == "target opponent" else "", data={"side": "theirs"})
+    return _e("poison", n, target="that_player" if who.startswith("def") else
+              "each_opponent" if who == "each opponent" else "each_player")

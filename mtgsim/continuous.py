@@ -70,7 +70,8 @@ def active(permanent):
     static = [ContinuousEffect(-id(src), permanent, "remove", getattr(src, "rules_timestamp", 0), keyword="infect", source=src)
               for src in sources(game, "remove_infect") if (permanent.is_creature if hasattr(permanent, "impending") else permanent._card.is_creature) and src.controller is not permanent.controller]
     from .cx_type_grants import effects as type_grants
-    return static + linked_effects(permanent) + type_grants(permanent) + [e for e in game.continuous_effects if e.target is permanent and
+    from .cx_static_chars import effects as chars          # #406: static type / colour / base-P/T changes
+    return static + linked_effects(permanent) + type_grants(permanent) + chars(permanent) + [e for e in game.continuous_effects if e.target is permanent and
             permanent in permanent.controller.battlefield and (e.source is None or
             e.source in e.source.controller.battlefield)]
 

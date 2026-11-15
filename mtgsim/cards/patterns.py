@@ -218,12 +218,12 @@ _EFFECT_PATTERNS = wordings.patterns("core") + [
      lambda m: Effect("destroy", target="creature", filter=f"total_pt<={m[1]}")),
     (r"up to one target creature gets \+(\d+)/\+(\d+) until end of turn",
      lambda m: Effect("pump", int(m[1]), int(m[2]), target="creature_mine")),
-    (r"up to one target creature gets -(\d+)/-(\d+) until end of turn",
-     lambda m: Effect("debuff_one", int(m[1]), int(m[2]), target="creature", filter="opp")),
+    (r"up to one target creature gets -(\d+)/-(\d+) until end of turn",     # any creature, or none (#443)
+     lambda m: Effect("debuff_one", int(m[1]), int(m[2]), target="creature", data={"optional_target": True})),
     (r"~ gets \+(\d+)/\+(\d+) until end of turn and can't be blocked this turn",
      lambda m: [Effect("pump", int(m[1]), int(m[2]), target="self"), Effect("unblockable", target="self")]),
-    (r"(?:you may have )?(another )?target creature gets? -(\d+)/-(\d+) until end of turn",
-     lambda m: Effect("debuff_one", int(m[2]), int(m[3]), target="creature")),
+    (r"(?:you may have )?(another )?target creature gets? -(\d+)/-(\d+) until end of turn",    # "another": #443
+     lambda m: Effect("debuff_one", int(m[2]), int(m[3]), target="creature", data={"not_earlier": True} if m[1] else {})),
     (r"target creature gets \+(\d+)/-(\d+) until end of turn",
      lambda m: Effect("debuff_one", -int(m[1]), int(m[2]), target="creature")),
     (r"(up to (?:one|two|three)|one or two|up to two) target creatures can't block this turn",

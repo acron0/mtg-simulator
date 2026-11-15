@@ -125,6 +125,9 @@ class TargetsMixin:
         source = self.target_source.source if isinstance(self.target_source, StackItem) else self.target_source
         if eff.data.get('other'):
             everything = [x for x in everything if x is not source]
+        if eff.data.get('not_earlier'):     # "another target ...": not an object an earlier target of it took
+            taken = self._earlier_targets(eff)
+            everything = [x for x in everything if all(x is not t for t in taken)]
         creatures = [c for c in everything if c.is_creature and self.passes_filter(eff, c, p)]
         from ..backlog_templates import related_targets
         everything = related_targets(self, eff, everything)
@@ -174,6 +177,19 @@ class TargetsMixin:
             return spells + [x for x in (creatures if t == "spell_or_creature" else everything)
                              if self.passes_filter(eff, x, p)]
         return []
+
+    def _earlier_targets(self, eff: Effect) -> list:
+        """The targets chosen for the effects before eff in the same spell or ability, while its targets are
+        chosen (auto_targets: the list so far), checked as a whole list, or checked again on resolution."""
+        item = self.target_source
+        if isinstance(item, StackItem):
+            idx = next((i for i, e in enumerate(item.effects) if e is eff), None)
+            if idx is not None:
+                return list(item.targets[:idx])
+        chosen = getattr(self, '_choosing_targets', None) or []
+        effects = getattr(self, '_choosing_effects', None) or ()
+        idx = next((i for i, e in enumerate(effects) if e is eff), None)
+        return list(chosen[:idx]) if idx is not None else list(chosen)
 
     def legal_target(self, p: Player, eff: Effect, tgt) -> bool:
         """Use the same type, controller, filter and presence checks as enumeration."""

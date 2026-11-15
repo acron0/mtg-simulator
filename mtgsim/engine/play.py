@@ -124,12 +124,12 @@ class PlayMixin:
         x = 0
         if assisted and "X" in card.mana_cost:
             for n in range(1, 21):
-                trial = dict(cost, generic=cost.get("generic", 0) + n)
+                trial = dict(cost, generic=cost.get("generic", 0) + n * card.mana_cost["X"])
                 remaining, tapped, _ = self.assist_payment(p, card, trial)
                 if costs.spell_plan(self, p, card, remaining, exclude=convoked + tapped) is None:
                     break
                 x = n
-            cost["generic"] = cost.get("generic", 0) + x
+            cost["generic"] = cost.get("generic", 0) + x * card.mana_cost["X"]
         cost, improvised, delved = self.assist_payment(p, card, cost) if assisted else (cost, [], [])
         from .. import cx_spell_costs           # "As an additional cost to cast ~, ..." (#342)
         add_cost = cx_spell_costs.for_cast(self, p, card, targets)
@@ -152,10 +152,12 @@ class PlayMixin:
             p.graveyard.remove(c)
             p.exile.append(c)
         if "X" in card.mana_cost and not assisted:     # X: as much as the remaining mana allows
-            while x < 20 and payable([s for s in self.mana_sources(p, spell=card) if s not in plan.exclude], {"generic": x + 1}):
+            per_x = card.mana_cost["X"] or 1           # {X}{X}: each X costs two mana (#531)
+            while x < 20 and payable([s for s in self.mana_sources(p, spell=card) if s not in plan.exclude],
+                                     {"generic": (x + 1) * per_x}):
                 x += 1
             if x:
-                payment += self.pay(p, {"generic": x}, spell=card, exclude_many=plan.exclude)
+                payment += self.pay(p, {"generic": x * per_x}, spell=card, exclude_many=plan.exclude)
         kicks = 0
         multipay = card.advanced_rules.get("multipay")
         if multipay is not None and kind == "":

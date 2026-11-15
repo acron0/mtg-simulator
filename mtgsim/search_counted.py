@@ -229,7 +229,17 @@ def parse(text):
     split = re.match(r"(.+?)(?=(?:,|,? and) (?:reveals?|puts?|exiles?|then)\b)(.+)", rest, re.I)
     if not split:
         return None
-    q = _quantity(split[1])
+    that_many = re.fullmatch(r"(up to )?(that many|that-many-sacrificed) (.+)", split[1], re.I)
+    if that_many:
+        # "up to that many land cards": the amount of the event that triggered it (a trigger whose event carries
+        # one, cx_tokens), or the permanents just sacrificed by "Sacrifice any number of ..." (SUBS below);
+        # any other antecedent ("exile all attacking creatures ... that many") is refused
+        from . import cx_tokens
+        if that_many[2].lower() == "that many" and not cx_tokens._that_many_ok:
+            return None
+        q = (0, bool(that_many[1]), False, False, that_many[3])
+    else:
+        q = _quantity(split[1])
     if q is None:
         return None
     count, upto, every, x, noun = q
@@ -258,6 +268,10 @@ def parse(text):
         data["x_count"] = True     # not data["x"]: Game.resolve reads that from the stack item only
     if mv_x:
         data["mv_x"] = mv_x
+    if that_many:
+        if xq or x or mv_x:
+            return None
+        data["that_much"] = True     # amount: the event's (Game._that_much) or the count sacrificed (Game.resolve)
     data.update(extras)
     target = "none"
     if searcher == "target":
@@ -272,6 +286,13 @@ def _build(m):
     eff = parse(m[0])
     return NO_MATCH if eff is None else eff
 
+
+# "Sacrifice any number of lands[ you control]. Search your library for up to that many land cards, ..." (Scapeshift,
+# Genesis Device): "that many" is the count just sacrificed; marked so the search sentence knows its antecedent.
+SUBS = [
+    (re.compile(r"\b(sacrifice any number of [a-z ,/]+?)(?:\.|, then) search your library for up to that many\b", re.I),
+     lambda m: m[1] + ". Search your library for up to that-many-sacrificed"),
+]
 
 EFFECT_PATTERNS = [
     (r"(?:(?:target player|each player|each opponent|its controller|that player|that creature's controller|"

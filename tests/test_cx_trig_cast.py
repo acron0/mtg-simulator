@@ -159,6 +159,31 @@ class Games(Base):
         self.game.settle()
         self.assertEqual((self.a.life, self.b.life), (22, 18))
 
+    def test_graveyard_cast_trigger(self):
+        phoenix = DB.get("Aurora Phoenix")
+        self.a.graveyard.append(phoenix)
+        self.cast(self.a, OPT)                                  # no cascade: stays
+        self.assertIn(phoenix, self.a.graveyard)
+        cascader = card("Test Cascader", "{U}", "Sorcery", "Cascade\nDraw a card.")
+        self.assertTrue(cascader.cascade or "cascade" in cascader.keywords)
+        self.cast(self.a, cascader)
+        self.assertNotIn(phoenix, self.a.graveyard)
+        self.assertIn(phoenix, self.a.hand)
+
+    def test_opponents_graveyard_card_does_not_see_your_cast(self):
+        phoenix = DB.get("Aurora Phoenix")
+        self.b.graveyard.append(phoenix)
+        self.cast(self.a, card("Test Cascader", "{U}", "Sorcery", "Cascade\nDraw a card."))
+        self.assertIn(phoenix, self.b.graveyard)
+
+    def test_target_player_poison_hits_only_the_opponent(self):
+        from mtgsim.ai import HeuristicAI
+        self.a.ai = HeuristicAI()
+        self.put(self.a, DB.get("Hand of the Praetors"))
+        infect = card("Test Infector", "{G}", "Creature — Phyrexian", "Infect", 1, 1)
+        self.cast(self.a, infect, lands=(card("Test Forest", "", "Basic Land — Forest", "{T}: Add {G}."),))
+        self.assertEqual((self.a.counters.get("poison", 0), self.b.counters.get("poison", 0)), (0, 1))
+
     def test_heuristic_ai_curses_the_opponent(self):
         from mtgsim.ai import HeuristicAI
         a = Player("a", [], HeuristicAI())

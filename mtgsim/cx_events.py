@@ -659,6 +659,7 @@ def observe(game, p, event, source=None, context=None, subject=None):
         watchers.append(source)     # "~ or another creature dies": the dying source still sees it
     if event == "perm_to_gy" and isinstance(subject, Permanent) and subject not in watchers and _has_ev(subject):
         watchers.append(subject)
+    _observe_graveyards(game, p, event, source, context, subject)
     if not watchers:
         return
     ev = "ev:" + event
@@ -725,6 +726,30 @@ def observe(game, p, event, source=None, context=None, subject=None):
                 tgts = [cast_item if e.kind == "counter" and e.data.get("that_spell") else None for e in effects]
             game.queue_trigger(perm.controller, effects, perm, perm.card.name, ctx, targets=tgts, modes=trig.modes,
                                intervening_if=trig.intervening_if)
+
+
+class _CardWatcher:
+    """A card in a graveyard listening with a player-subject head: its owner is "you"."""
+    def __init__(self, card, owner):
+        self.card, self.controller = card, owner
+
+
+def _observe_graveyards(game, p, event, source, context, subject):
+    """"Whenever you cast a spell with cascade, return this card from your graveyard to your hand" (Aurora Phoenix):
+    ev: triggers of graveyard cards. Only player-subject heads ("you cast ...") are read from a graveyard; an
+    object subject ("~ or another creature") needs a permanent."""
+    ev = "ev:" + event
+    for owner in game.players:
+        for card in list(owner.graveyard):
+            for trig in getattr(card, "gy_triggers", ()):
+                if trig.event != ev:
+                    continue
+                got = compile_head(trig.filter)
+                if got is None or "player" not in got[1]:
+                    continue
+                if _match(game, got[1], event, _CardWatcher(card, owner), p, source, context, subject) is False:
+                    continue
+                game.queue_trigger(owner, trig.effects, None, card.name, context=card)
 
 
 def _match(game, spec, event, perm, p, source, context, subject, wants_player=False):

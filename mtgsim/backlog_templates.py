@@ -77,7 +77,7 @@ def parse_line(line, state):
     # "sacrifice it unless ..." / "it deals N damage to ...": "it" is the entering object here, not the ~ the
     # self-ETB rewrite reads (#330, #320)
     if m and not m[1].startswith(('~', 'equipped ', 'enchanted ')) and \
-            not re.match(r'(?:sacrifice|exile|destroy) it unless |it deals \w+ damage to ', m[3]):
+            not re.match(r'(?:sacrifice|exile|destroy) it unless |it deals \w+ damage to |you may have it ', m[3]):
         established = _parse_trigger(line)
         if established and established[0] and not established[1]:
             return False  # Preserve existing event-specific context and graveyard listeners.

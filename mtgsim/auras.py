@@ -227,6 +227,7 @@ def attach(game, aura, host):
         add_control(game, host, aura.controller, source=aura)
         aura.controlled_host = host
     game.log(f"{aura.card.name} enchants {host.card.name}", aura.controller)
+    game.fire(aura.controller, "aura_attached", aura, context=host)     # "Whenever an Aura becomes attached to ~"
 
 
 def detach(aura):

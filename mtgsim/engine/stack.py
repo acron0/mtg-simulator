@@ -372,6 +372,9 @@ class StackMixin:
                 if item.kind == "spell" and tgt.controller is item.controller:
                     self.fire(tgt.controller, "heroic", source=tgt)
         for tgt in unique_targets:
+            if isinstance(tgt, Player):                 # "Whenever you become the target of ..." (cx_trig_heads)
+                self.fire(tgt, "player_targeted", context=item, targeter=item)
+        for tgt in unique_targets:
             if isinstance(tgt, Permanent) and tgt.controller is item.controller and tgt in tgt.controller.battlefield:
                 self.fire(tgt.controller, "targeted_mine", source=tgt, targeter=item)  # Valiant
         for tgt in unique_targets:

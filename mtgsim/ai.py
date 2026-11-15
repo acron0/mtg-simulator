@@ -1301,7 +1301,7 @@ class HeuristicAI:
             with game.targeting(card if card is not None else game.target_source):
                 return engine.default_choose_target(game, me, eff)
         opp = game.opponent(me)
-        if eff.kind == "die_roll" and card is not None:
+        if eff.kind in ("die_roll", "become_copy") and card is not None:
             tgt = copies.group_model(game, me, eff, card)     # "choose target creature" a group copy reads
             if tgt is not None:
                 return tgt

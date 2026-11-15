@@ -23,7 +23,8 @@ def hostile_may(text, new):
     """Mark a lone targeted "you may destroy/exile/return/deal damage to target ..." as optional-by-target (see Game.resolve_item)."""
     from ..engine.state import TARGETED
     if len(new) != 1 or new[0].kind not in ("destroy", "exile", "exile_permanent", "bounce", "damage", "tap") \
-            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", text, re.I):
+            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", re.sub(
+                r"\bequal to the number of [^,]+?(?= to (?:target|any target)\b|$)", "", text), re.I):
         return False
     new[0].data["may_hostile"] = True
     return True
@@ -78,8 +79,10 @@ def _parse_effects(text: str, opts: bool = False):
             continue
         if _cx_tokens.parse_rider(s, effects):
             continue
+        from ..cx_exile_play import parse_rider as exile_play_rider        # "for as long as it remains exiled"
         from ..cx_replace_zones import parse_rider as leave_exile_rider      # "exile it instead of ... anywhere else"
-        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or leave_exile_rider(s, effects) or \
+        if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or exile_play_rider(s, effects) or \
+                leave_exile_rider(s, effects) or \
                 delayed_rider(s, effects) or watch_rider(s, effects) or spell_rider(s, effects):
             continue
         if re.fullmatch(r"creatures destroyed this way can't be regenerated", s, re.I):
@@ -243,11 +246,6 @@ def _parse_effects(text: str, opts: bool = False):
                 effects += new
                 continue
         mx = re.fullmatch(r"(.+?),? where X is (.+)", s, re.I)
-        # Named-card counts still lack a name-preserving quantity spec.
-        if mx and re.search(r"\bX\b", mx[1]) and re.search(r"\btarget (?:player|opponent)\b", mx[1], re.I) \
-                and re.search(r"\bnamed\b", mx[2], re.I):
-            unmatched.append(s)
-            continue
         if mx and re.search(r"\bX\b", mx[1]) and _xq(mx[2]):
             spec = _xq(mx[2])
             new, bad = [], True
@@ -353,10 +351,13 @@ def _parse_effects(text: str, opts: bool = False):
             parts = None if re.search(r"\binstead\b", s, re.I) else _split_compound(s)
             from ..cx_suspect import parse_otherwise
             from .. import cx_grammar, cx_multi_target, excess_damage
+            from ..card_referent import parse_rider as card_ref     # "... equal to that card's mana value" (#313)
             if parts:
                 effects += parts
-            elif not parse_otherwise(s, effects) and not cx_grammar.parse_fallback(s, effects) \
-                    and not cx_multi_target.lift(s, effects) and not excess_damage.parse(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312); excess damage (#560)
+            elif not card_ref(s, effects) and not parse_otherwise(s, effects) and \
+                    not cx_grammar.parse_fallback(s, effects) \
+                    and not cx_multi_target.lift(s, effects) \
+                    and not excess_damage.parse(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312); excess (#560)
                 unmatched.append(sentence.strip())
         effects[first:] = _cx_tokens.reparse(s, effects[first:])
         if paid:
@@ -900,6 +901,9 @@ def _parse_trigger(line: str):
     if once_game:
         line = line[:-len(" This ability triggers only once.")]
     out = _parse_trigger_line(line)
+    if out is None and not (once or once_game):       # "When ~ enters and whenever ..., <body>" (#399)
+        from ..cx_trig_compound import split as _compound
+        out = _compound(line, _parse_trigger)
     if out is not None and once:
         for t in out[0]:
             t.once = True
@@ -973,6 +977,8 @@ def _parse_trigger_line(line: str):
             flt = "blocks_flying"
         if events == ("cast_instant_sorcery",) and "that targets a creature" in pat:
             flt = "targets_creature"
+        from ..self_trigger_it import rewrite as _self_it
+        rest = _self_it(events, line, rest)        # "When ~ enters, it deals ..." / "you may have it deal ..." (#319, #320)
         if events in (("targeted_mine",), ("dealt_damage",)):
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("cast_cmc",):

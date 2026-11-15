@@ -95,7 +95,7 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     k = eff.kind
     if k == "copy_spell":
         return max(legal, key=lambda i: i.card.cmc, default=None)
-    if k == "die_roll" and copies.group_model(game, me, eff, None) is not None:     # a group copy's model
+    if k in ("die_roll", "become_copy") and copies.group_model(game, me, eff, None) is not None:   # copy choices
         return copies.group_model(game, me, eff, None)
     if k == "damage" and eff.data.get("spell_controller"):
         return max((i for i in legal if i.controller is opp), key=lambda i: i.card.cmc, default=None)
@@ -121,7 +121,7 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         if killable:
             return max(killable, key=perm_value)
         return opp if eff.target in ("any", "player") else None
-    if k in ("bite_src", "ref_bite"):          # referent damage: "... deals damage equal to its power to ..."
+    if k in ("bite_src", "ref_bite") or eff.data.get("bite_run"):          # referent damage: "... deals damage equal to its power to ..."
         from ..cx_grammar_bite import choose as bite_choose
         return bite_choose(game, me, eff)
     if eff.data.get("ref_amount"):     # a target only for an amount ("equal to target creature's power"): the largest
@@ -627,6 +627,8 @@ def ability_worth(game: Game, me: Player, perm: Permanent, idx: int, reserve: in
     if x is not None:               # the X paid as mana: judge the effects at full size
         effects = [dataclasses.replace(e, amount=x, amount2=x if e.data.get("x2") else e.amount2)
                    if e.data.get("x") else e for e in effects]
+        effects = [dataclasses.replace(e, data=dict(e.data, x_now=x)) if e.data.get("mv_x") else e
+                   for e in effects]        # "mana value X or less" (Fiend Artisan): judge with the X chosen (#379)
     if c.get('remove_creature_counters') in ('x', 'positive'):
         payment = costs.ability_plan(game, me, perm, act, game.ability_cost(me, perm, act))
         if payment is None:

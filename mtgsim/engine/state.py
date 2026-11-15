@@ -870,7 +870,17 @@ def note_this_way(item, verb: str, nouns, n: int):
     """Record what the resolving effect just did "this way" (counters removed / permanents destroyed), so a
     following "for each ... this way" sentence of the same resolution reads the resolved event's result
     (CR 608.2c), not a global count."""
-    if item is not None and n > 0:
+    if item is None or n <= 0:
+        return
+    # One "this way" set per resolution step: what this effect already recorded (a group destroying its members one
+    # by one), or else what the directly preceding effect did with the same verb ("Destroy all artifacts. Destroy all
+    # enchantments." read as one sentence: Fracturing Gust's "each permanent destroyed this way") (#337).
+    prior = getattr(item, "this_way", None)
+    if prior is None or prior[0] != verb:
+        prior = getattr(item, "this_way_prior", None)
+    if prior is not None and prior[0] == verb:
+        item.this_way = (verb, prior[1] & frozenset(nouns), prior[2] + n)
+    else:
         item.this_way = (verb, frozenset(nouns), n)
 
 

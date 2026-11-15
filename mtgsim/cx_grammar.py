@@ -519,7 +519,8 @@ def _count_spec(desc: str):
         if spec is None:
             continue
         # the plural we made up names a thing: use the word as written ("soot counter": counters are stored "soot")
-        spec = spec[:1] + tuple(w.lower() if isinstance(v, str) and v.lower() == many.lower() else v for v in spec[1:])
+        if spec[0] == "counters":   # only the counter kind is a name: a spec's tags ("cxq", "cards") stay (#431)
+            spec = spec[:1] + tuple(w.lower() if isinstance(v, str) and v.lower() == many.lower() else v for v in spec[1:])
         if spec[0] == "count" and isinstance(spec[1], str) and \
                 any(x in _COUNT_STOPS - {"you"} for x in spec[1].lower().split()):
             return None     # the loose "the number of ... you control" swallowed a phrase it can't count

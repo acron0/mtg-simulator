@@ -486,6 +486,13 @@ def _face_land_and_mana_lines(st, line):
         if re.fullmatch(r"~ enters tapped if it's not your turn\.", line):
             extra["tapped_condition"] = "not_your_turn"
             return None
+        from ..mana_count import parse_conditional
+        cond_mana = parse_conditional(line)
+        if cond_mana:       # "{T}: Add {C}. If you control an Urza's Mine and ..., add {C}{C} instead." (#321)
+            produces |= {cond_mana[0]}
+            extra["mana_amount"] = max(cond_mana[1], extra.get("mana_amount", 1))
+            extra["mana_dyn"] = cond_mana[2]
+            return None
         m = re.fullmatch(r"\{T\}: Add ([^.]+)\.(?: ~ deals 1 damage to you\.)?", line)
         if m:
             cols, amount = _parse_mana_ability(m[1])

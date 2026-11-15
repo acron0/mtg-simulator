@@ -109,6 +109,8 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
     elif word[:1].isupper() and word.isalpha():
         sub = word if not plural or not word.endswith("s") or word.endswith("ss") else word[:-1]
         spec.setdefault("sub", []).append(sub)
+    elif re.fullmatch(r"[A-Z][a-z]+(?:'s|-[A-Z][a-z]+)", word):
+        spec.setdefault("sub", []).append(word)     # "Urza's", "Power-Plant": land subtypes written as they are
     else:
         return False
     return True
@@ -193,6 +195,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     cc = spec.get("colorcount")
     if cc == "multicolored" and len(card.colors) < 2 or cc == "colorless" and card.colors or \
             cc == "monocolored" and len(card.colors) != 1:
+        return False
+    if "name" in spec and card.name != spec["name"]:
         return False
     if "legendary" in spec and bool(card.legendary) != spec["legendary"]:
         return False
@@ -329,6 +333,14 @@ def _you_control(m):
     if m["q"].lower() == "another":
         f = dict(f, other=True)
     return _code("ctl", "you", f, op, n)
+
+
+@rule(r"you control (?:creatures|permanents|artifacts|lands) named (?P<a>[A-Z][\w' -]+?) and (?P<b>[A-Z][\w' -]+)")
+def _you_control_named(m):
+    """"If you control creatures named Mine Worker and Tower Worker": one permanent by each name."""
+    t = re.match(r"you control (\w+?)s? named", m[0]).group(1).lower()
+    t = "permanent" if t == "permanent" else t
+    return _code("and", *(_code("ctl", "you", {"types": [t], "name": n.strip()}, ">=", 1) for n in (m["a"], m["b"])))
 
 
 @rule(rf"(?:an opponent|defending player|that player|target opponent) controls {_QUANT} (?P<f>.+?)")

@@ -90,6 +90,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return choose_list(game, me, eff)
     opp = game.opponent(me)
     legal = game.legal_targets(me, eff)
+    from ..cx_spent import fitting_targets
+    legal = fitting_targets(game, me, eff, legal)      # "if its mana value is <= converge" (Prismatic Ending)
     theirs = [x for x in legal if isinstance(x, Permanent) and x.controller is opp]
     mine = [x for x in legal if isinstance(x, Permanent) and x.controller is me]
     k = eff.kind

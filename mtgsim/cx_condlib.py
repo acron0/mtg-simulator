@@ -40,6 +40,11 @@ def _n(word: str) -> int:
     return int(word) if word.isdigit() else _WORDS[word]
 
 
+def _tuple(x):
+    """A quantity spec back from its JSON list form (nested lists become tuples)."""
+    return tuple(_tuple(v) for v in x) if isinstance(x, list) else x
+
+
 def _code(*parts) -> str:
     return "lib:" + json.dumps(list(parts), separators=(",", ":"))
 
@@ -592,6 +597,16 @@ def _spent_colors(m):
     if len(set(colours)) != len(colours):
         return ""
     return _code("and", *(_code("spent_color", c) for c in colours))
+
+
+@rule(r"its (?P<stat>mana value|power|toughness) is less than or equal to (?P<q>.+? spent to cast (?:~|it|this spell))")
+def _target_stat_le(m):
+    """"Exile target nonland permanent if its mana value is less than or equal to the number of colors of mana
+    spent to cast ~" (Prismatic Ending): the effect's own target (``prev`` as its condition is checked) against
+    a quantity of the spell."""
+    from .cards.clauses import _xq
+    spec = _xq(re.sub(r"cast (?:it|this spell)$", "cast ~", m["q"]))
+    return _code("tgt_stat_le", m["stat"].lower(), list(spec)) if spec else ""
 
 
 @rule(rf"(?P<q>a|one or more|{_NUM} or more) cards? left your graveyard this turn")
@@ -1213,6 +1228,12 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return getattr(p.graveyard, "left_turn", 0) >= args[0]
     if kind == "not_cast":      # "if it wasn't cast": the permanent itself (entry conditions have no item)
         return source is not None and not getattr(source, "was_cast", False)
+    if kind == "tgt_stat_le":
+        from .engine.state import Permanent
+        if not isinstance(prev, Permanent):
+            return False
+        n = prev.card.cmc if args[0] == "mana value" else getattr(prev, args[0], 0)
+        return n <= game.x_quantity(p, _tuple(args[1]), item, prev)
     if kind in ("mana_same", "mana_ncolors"):
         src = item if getattr(item, "is_spell", False) else source
         if kind == "mana_ncolors":

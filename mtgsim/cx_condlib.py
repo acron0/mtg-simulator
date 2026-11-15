@@ -708,10 +708,18 @@ def _prev_was(m):
 
 
 @rule(rf"(?:its|that card's|that creature's|that spell's|that permanent's) mana value (?:was|is) (?P<n>{_NUM}) or "
-      r"(?P<d>less|fewer|greater|more)|(?:it|that card) had mana value (?P<n2>\d+) or (?P<d2>less|greater)")
+      r"(?P<d>less|fewer|greater|more)|(?:it|that card) had mana value (?P<n2>\d+) or (?P<d2>less|greater)|"
+      rf"that spell has mana value (?P<n3>{_NUM}) or (?P<d3>less|greater)")
 def _prev_mv(m):
-    n, d = (m["n"], m["d"]) if m["n"] else (m["n2"], m["d2"])
+    n, d = (m["n"], m["d"]) if m["n"] else (m["n2"], m["d2"]) if m["n2"] else (m["n3"], m["d3"])
     return _code("prev_is", {"mv": [">=" if d in ("greater", "more") else "<=", _n(n)]})
+
+
+@rule(rf"that spell's (?P<s>power|toughness) (?:was|is) (?P<n>{_NUM}) or (?P<d>less|greater|more)")
+def _spell_pt(m):
+    """"If that spell's power is 4 or greater" (Eshki): the printed power of the spell a cast trigger fired on or a
+    counterspell targeted (#317)."""
+    return _code("prev_is", {"spell_" + m["s"].lower(): [">=" if m["d"] != "less" else "<=", _n(m["n"])]})
 
 
 @rule(rf"(?:it|that creature) had (?P<q>{_NUM}|{_NUM} or more|no) (?P<c>\+1/\+1|-1/-1|[a-z]+) counters? on it")
@@ -1067,7 +1075,11 @@ def check(game, p, code: str, item=None, source=None, prev=None):
             item._resolve_count = count
         return count == args[0]
     if kind == "prev_is":
-        from .engine.state import Permanent
+        from .engine.state import Permanent, StackItem
+        spell = prev if isinstance(prev, StackItem) else getattr(item, "context", None)
+        if not isinstance(prev, Permanent) and isinstance(spell, StackItem) and spell.card is not None \
+                and not args[0].get("state"):
+            return _spell_ok(spell, args[0])      # "that spell": a cast trigger's spell or a countered one (#317)
         obj = prev if isinstance(prev, Permanent) else getattr(item, "context", None)
         if prev is None and obj is None and item is not None:
             from .cx_delayed import _fresh       # "put an artifact card onto the battlefield. If it's an Equipment, ..."
@@ -1303,3 +1315,22 @@ def holds_for(source, code: str, ref=None) -> bool:
 
 from .cx_static_cond import RULES as _STATIC_RULES  # noqa: E402  (devotion, most common color)
 _RULES.extend((re.compile(pattern, re.I), build) for pattern, build in _STATIC_RULES)
+
+
+def _spell_ok(spell, spec) -> bool:
+    """prev_is for a spell on the stack (or just countered): its mana value counts X (rule 202.3b), power and
+    toughness are the printed ones, everything else is the card's."""
+    card = spell.card
+    spec = dict(spec)
+    if "mv" in spec:
+        x = getattr(spell, "x", 0) or 0
+        mv = card.cmc + x * (card.mana_cost.get("X", 0) if isinstance(card.mana_cost, dict) else 0)
+        if not _cmp(mv, *spec.pop("mv")):
+            return False
+    for stat in ("power", "toughness"):
+        want = spec.pop("spell_" + stat, None)
+        if want is not None:
+            value = getattr(card, stat, None)
+            if value is None or not _cmp(int(value or 0), *want):
+                return False
+    return _card_ok(card, spec) if spec else True

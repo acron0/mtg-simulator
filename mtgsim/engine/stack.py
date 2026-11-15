@@ -400,6 +400,7 @@ class StackMixin:
         item = self.stack.pop()
         p = item.controller
         self.last_dealt = 0          # "the damage dealt this way" only counts damage from this resolution
+        self.excess_dealt = 0        # "excess damage ... this way" (excess_damage.py) likewise
         if item.intervening_if and not self.check_cond(p, Effect("condition", cond=item.intervening_if), item, None):
             self.log(f"{item} does not resolve (intervening condition is false)", p)
             self.state_based_actions()

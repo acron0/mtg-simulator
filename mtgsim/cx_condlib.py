@@ -298,6 +298,12 @@ _ALIASES = {
     "~ was kicked": "lib:[\"kicked\"]",
     "that spell was kicked": "lib:[\"ctx_kicked\"]",
     "you cast it from your hand": "lib:[\"from_hand\"]",
+    # rule 120.4a: excess damage dealt by this resolution (game.excess_dealt, kept by deal_damage; #560)
+    "excess damage was dealt this way": "lib:[\"excess\"]",
+    "excess damage was dealt to that creature this way": "lib:[\"excess\"]",
+    "excess damage was dealt to a creature this way": "lib:[\"excess\"]",
+    "excess damage was dealt to a permanent this way": "lib:[\"excess\"]",
+    "excess damage was dealt to that permanent this way": "lib:[\"excess\"]",
     "you cast ~ from your hand": "lib:[\"from_hand\"]",
     "~ was cast from your hand": "lib:[\"from_hand\"]",
     "~ is attacking": "lib:[\"src_attacking\"]",
@@ -1127,6 +1133,8 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return any(len(pl.graveyard) >= args[0] for pl in game.players)
     if kind == "small_library":
         return any(len(pl.library) <= args[0] for pl in game.players)
+    if kind == "excess":
+        return getattr(game, "excess_dealt", 0) > 0
     if kind == "monarch":
         return getattr(game, "monarch", None) is p
     if kind == "opp_monarch":

@@ -82,6 +82,9 @@ def quantity(text: str):
     m = re.fullmatch(r"the number of (?:([\w+/-]+) )?counters? removed this way", low)
     if m:       # "draw a card for each counter removed this way": what the previous effect removed (#345)
         return ("this_way", "removed", m[1] or "counter")
+    if re.fullmatch(r"(?:the (?:amount of )?|that )?excess damage(?: dealt(?: to (?:that creature|that permanent|a creature|"
+                    r"a permanent))? this way)?", low):
+        return ("cxq", "excess")            # the excess damage this resolution dealt (rule 120.4a, #560)
     if low == "the number of opponents you have":
         return ("cxq", "opponents")
     if low in ("the number of colors of mana spent to cast ~", "the number of colors of mana spent to cast this spell"):
@@ -227,6 +230,8 @@ def value(game, p, spec, item, prev) -> int:
             return len(members)
         stats = [_stat(x, spec[2]) for x in members]
         return max(stats, default=0) if kind == "greatest" else sum(max(0, s) for s in stats)
+    if kind == "excess":
+        return getattr(game, "excess_dealt", 0)
     if kind == "card_types":
         return len({t for c in _zone_cards(game, p, spec[2]) for t in c.types})
     if kind == "cards":

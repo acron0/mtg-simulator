@@ -254,3 +254,6 @@ from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
 from .. import linked_exile as _linked_exile  # noqa: E402
 _EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS
+from .. import library_peek as _library_peek  # noqa: E402
+_EFFECT_PATTERNS += _library_peek.EFFECT_PATTERNS
+_SUBS += _library_peek.SUBS

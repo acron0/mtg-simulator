@@ -41,6 +41,13 @@ def parse_line(line: str, st) -> bool:
         n = int(m[1]) if m[1].isdigit() else _N[m[1]]
         _rules(st).setdefault("cx_etb_if", []).append((code, n, m[2]))
         return True
+    q = re.fullmatch(r"(?:[A-Z][\w' -]* — )?~ enters(?: the battlefield)? with (?:(a|an|one|two|three|\d+) "
+                     r"(\+1/\+1|[a-z]+) counters? on it for each (color of )?mana spent to cast it|(?:a number of )?"
+                     r"(\+1/\+1|[a-z]+) counters on it equal to the amount of mana spent to cast it)\.", line)
+    if q and not (q[3] and q[1] in ("a", "an") and q[2] == "+1/+1"):   # one +1/+1 per colour: sunburst (batch1)
+        n = 1 if q[4] else int(q[1]) if q[1].isdigit() else _N[q[1]]
+        _rules(st).setdefault("cx_etb_q", []).append((n, q[2] or q[4], "colors" if q[3] else "mana"))
+        return True
     if line == "If ~ would die, exile it instead.":
         _rules(st)["cx_exile_self"] = True
         return True
@@ -96,6 +103,18 @@ def entry_counters(game, p, perm):
             ok = game.check_cond(p, Effect("condition", cond=code), StackItem(p, [], [], source=perm), None)
         if ok:
             perm.counters[kind] = perm.counters.get(kind, 0) + n
+
+
+def entry_spent_counters(game, perm):
+    """'~ enters with N counters on it for each [color of] mana spent to cast it' / '... equal to the amount
+    of mana spent to cast it' (Verazol, Marath, Glinting Creeper): the payment of the spell it resolved from;
+    a permanent that wasn't cast gets none."""
+    from .cx_grammar_quantity import spent_amount
+    for n, kind, what in perm.card.advanced_rules.get("cx_etb_q", ()):
+        k = (len(set(perm.mana_colors) & set("WUBRG")) if perm.was_cast else 0) if what == "colors" \
+            else spent_amount(perm)
+        if n * k:
+            perm.counters[kind] = perm.counters.get(kind, 0) + n * k
 
 
 def exiles(game, perm) -> bool:

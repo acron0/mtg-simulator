@@ -1259,6 +1259,9 @@ def _face_ability_lines(st, line):
             return None
         if cx_grammar.parse_static(line, st):
             return None
+        from ..cx_night_buffs import enters_tapped_late      # "~ enters tapped unless / if <condition>" (#630)
+        if enters_tapped_late(line, st):
+            return None
         unsupported.append(line)
         return line
     finally:

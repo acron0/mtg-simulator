@@ -270,3 +270,6 @@ from .. import bounce_own as _bounce_own  # noqa: E402
 _EFFECT_PATTERNS += _bounce_own.EFFECT_PATTERNS
 from .. import free_cast as _free_cast  # noqa: E402  "cast a spell from your hand without paying its mana cost" (#625)
 _EFFECT_PATTERNS += _free_cast.EFFECT_PATTERNS
+from .. import until_nonland as _until_nonland  # noqa: E402  "exile until a nonland card, you may cast it" (#625)
+_EFFECT_PATTERNS += _until_nonland.EFFECT_PATTERNS
+_SUBS += _until_nonland.SUBS

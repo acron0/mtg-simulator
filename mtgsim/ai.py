@@ -122,7 +122,7 @@ MINOR_EFFECTS = {"treasure": 1.0, "rummage": 0.3, "surveil": 0.3, "scry": 0.3, "
 def _boost(card: CardDef):
     """(effect, +power, +toughness) for a spell that pumps or puts +1/+1 counters on our creature."""
     for e in card.spell_effects:
-        if e.kind == "pump":
+        if e.kind == "pump" and not e.data.get("bite_run"):     # a bite run's pump picks damage sources (#811)
             return e, e.amount, e.amount2
         if e.kind == "p1_counters" and e.target == "creature_mine":
             return e, e.amount, e.amount
@@ -934,6 +934,16 @@ class HeuristicAI:
                     return None
                 targets.append(got[0])
                 value += got[1]
+                continue
+            if eff.kind == "pump" and eff.data.get("bite_run"):
+                # "One or two target creatures you control each get +1/+0. They each deal damage equal to their power
+                # to ...": the pumped creatures are the damage sources, chosen like a bite's (#811)
+                with game.targeting(card):
+                    tgt = self.choose_target(game, me, eff, card)
+                if tgt is None and not eff.data.get("optional_target"):
+                    return None
+                targets.append(tgt)
+                value += 0.25 * eff.amount if tgt is not None else 0.0
                 continue
             if eff.kind == "pump" or eff.target == "spell" or _is_trick(card):
                 return None  # tricks go in after_blocks / respond, counters in respond

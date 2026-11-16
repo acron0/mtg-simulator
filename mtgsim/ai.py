@@ -824,6 +824,18 @@ class HeuristicAI:
         return life_value(eff) - life_value(eff - amount)
 
     @staticmethod
+    def _max_x(game: Game, me: Player, card: CardDef) -> int:
+        """The largest X the available mana pays for on top of card's other costs ({X}{X}: two mana per X)."""
+        cost = game.cost_of(me, card)
+        per_x = card.mana_cost.get("X", 1) or 1
+        off = getattr(game, "x_reduction", 0)
+        x = 0
+        while x < 20 and engine.find_payment(game.mana_sources(me, spell=card), engine.add_costs(
+                cost, {"generic": max(0, (x + 1) * per_x - off)})) is not None:
+            x += 1
+        return x
+
+    @staticmethod
     def _sized(game: Game, me: Player, card: CardDef):
         """An X spell with X fixed at the largest value the remaining mana pays for, else None."""
         from .cx_spell_costs import cost_x, sized
@@ -878,7 +890,16 @@ class HeuristicAI:
             etb = self._etb_value(game, me, card, precombat)
             if etb < 0:
                 return None  # its enters trigger costs us more than the permanent is worth
-            return (card_value(card) + 0.5 * card.cmc + etb
+            x_value = 0.0
+            if "X" in card.mana_cost:
+                # "{X}" permanents (Endless One, Hangarback Walker, Sigil of Distinction: counters equal to X) are cast
+                # with the largest X the mana pays for (Game.cast); X = 0 is worthless, and each X is worth what the
+                # mana spent on it would be on a printed cost (#831)
+                x = self._max_x(game, me, card)
+                if x < 1:
+                    return None
+                x_value = 1.0 * x * (card.mana_cost.get("X", 1) or 1)
+            return (card_value(card) + 0.5 * card.cmc + etb + x_value
                     + self._static_value(game, me, card) - self._sac_cost(game, me, card), None)
         instant = card.instant_speed
         if any('anchor' in e.data or e.kind in ('allocated_counter', 'return_tribal_grave', 'grave_library_top',

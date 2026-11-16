@@ -294,3 +294,6 @@ from .. import cx_owner_library as _cx_owner_library  # noqa: E402  "put it on t
 _EFFECT_PATTERNS += _cx_owner_library.EFFECT_PATTERNS
 from .. import spell_grants as _spell_grants  # noqa: E402  "the next spell you cast this turn has cascade" (#633)
 _EFFECT_PATTERNS += _spell_grants.EFFECT_PATTERNS
+from .. import until_nonland as _until_nonland  # noqa: E402  "exile until a nonland card, you may cast it" (#625)
+_EFFECT_PATTERNS += _until_nonland.EFFECT_PATTERNS
+_SUBS += _until_nonland.SUBS

@@ -705,7 +705,7 @@ def pool_mana(color: str) -> CardDef:
     return _POOL_MANA[color]
 
 
-OUTLAWS = ("Assassin", "Mercenary", "Pirate", "Rogue", "Warlock", "Wizard")
+OUTLAWS = ("Assassin", "Mercenary", "Pirate", "Rogue", "Warlock")     # rule 700.12 (Wizards are not outlaws)
 
 
 class Player:

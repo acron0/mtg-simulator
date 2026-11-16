@@ -505,7 +505,7 @@ class StackMixin:
                 token = dataclasses.replace(base, name=f"{base.name} token", power=1, toughness=1, is_token=True,
                                             alt_costs=[])
                 self.queue_trigger(p, [Effect("token_copy", data={"card": token})], perm, f"{base.name} offspring")
-            if kind.startswith("evoke"):
+            if kind.startswith("evoke") or kind in (base.advanced_rules or {}).get("evoke_alts", ()):    # (#646)
                 self.log(f"sacrifices evoked {base.name}", p)
                 self.sacrifice(perm)
             if perm.is_creature and p.next_creature_counters:

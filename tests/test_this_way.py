@@ -52,13 +52,17 @@ class Parse(unittest.TestCase):
 
     def test_refusals(self):
         for s in ("If a creature card is revealed this way, draw a card.",              # "revealed": not journaled
-                  "If an outlaw was sacrificed this way, draw a card.",                 # not a filter word here
                   "If you didn't put a creature card into your hand this way, draw a card.",
                   "If a Foo card is exiled this way, draw a card.",
                   "You gain 1 life for each card returned this way.",
                   "You gain 1 life for each creature they controlled that was destroyed this way."):
             with self.subTest(s=s):
                 self.assertTrue(_parse_effects(s)[1], s)
+
+    def test_outlaw_filter(self):       # "outlaw" is a selector word since #601
+        effects, bad = _parse_effects("If an outlaw was sacrificed this way, draw a card.")
+        self.assertEqual(bad, [])
+        self.assertIn("Rogue", effects[0].cond)
 
 
 class Conditions(Base):

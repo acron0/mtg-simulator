@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from . import auras as _auras
 
 EFFECT_PATTERNS = []
 SUBS = []
@@ -44,10 +45,14 @@ def parse_line(line, state):
     if match:
         state.extra.setdefault('advanced_rules', {})[match[0]] = match[1]
         return True
-    if line.startswith('Enchant non-') and 'Aura' in state.type_line:
+    if line.startswith('Enchant ') and 'Aura' in state.type_line and not re.search(
+            r"\b(?:player|opponent|graveyard|hand|library|exile)\b", line) and not state.extra.get('aura') \
+            and not _auras._ENCHANT.fullmatch(line):
+        # "Enchant non-Human creature", "Enchant red or green creature", "Enchant tapped creature" (#633 residue):
+        # the noun phrase is a battlefield selector that must still hold while the Aura stays attached
         from .permanent_templates import selector
-        spec = selector(line[8:])
-        if spec is not None:
+        spec = _color_creature(line[8:]) or selector(line[8:])
+        if spec is not None and 'cx_desc' not in spec:
             state.extra['aura'] = line[8:]
             state.extra.setdefault('advanced_rules', {})['aura_selector'] = spec
             return True
@@ -59,6 +64,20 @@ def parse_line(line, state):
             state.triggers.append(Trigger('etb', effects, data={'enters_untapped': True}))
             return True
     return False
+
+
+_COLOR_LETTER = {'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'}
+
+
+def _color_creature(text):
+    """"red or green creature" / "nonblack creature": the colour words selector() can't read."""
+    m = re.fullmatch(r'((?:white|blue|black|red|green)(?: or (?:white|blue|black|red|green))+) creature', text)
+    if m:
+        return {'colors_any': [_COLOR_LETTER[w] for w in m[1].split(' or ')], 'types_all': ['creature']}
+    m = re.fullmatch(r'non-?(white|blue|black|red|green) creature', text)
+    if m:
+        return {'not_colors': [_COLOR_LETTER[m[1]]], 'types_all': ['creature']}
+    return None
 
 
 def parse_effect(text, previous):
@@ -115,7 +134,10 @@ def grave_targets(game, p, eff):
         from .cx_grammar_zones import grave_cards
         return grave_cards(game, p, eff)
     types = eff.data['grave_type'].split(' or ')
-    cards = [c for c in p.graveyard if ('cmc_exact' not in eff.data or c.cmc == eff.data['cmc_exact']) and
+    exact = eff.data.get('cmc_exact')
+    if exact == 1 and eff.data.get('xq'):        # "with mana value X, where X is Q": X read as 1 at parse (#317)
+        exact = game.target_x(eff, p)
+    cards = [c for c in p.graveyard if (exact is None or c.cmc == exact) and
              any(c.is_permanent if t == 'permanent' else t.title() in c.types for t in types)]
     if eff.data.get('tribal_group'):
         from .permanent_templates import _CREATURE_SUBTYPES

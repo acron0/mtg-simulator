@@ -1,9 +1,11 @@
 """Qualified hand-to-battlefield puts (#331, mtgsim/hand_put.py): dynamic mana value, chosen type, entry modifiers."""
+import os
 import random
 import unittest
 
 from mtgsim import hand_put
 from mtgsim.cards import card_from_scryfall
+from mtgsim.carddb import ALL_CARDS, CardDB
 from mtgsim.engine import Game, Player
 from mtgsim.engine.policy import ability_worth
 from tests.test_combat_triggers import Scripted
@@ -107,8 +109,6 @@ class Parse(unittest.TestCase):
                 # another player's put from "your" hand, and "their" hand without another player
                 "When ~ enters, each opponent may put a creature card from your hand onto the battlefield.",
                 "When ~ enters, you may put a creature card from their hand onto the battlefield.",
-                # "that player" / "its controller" referents are not modelled here
-                "When ~ enters, that player may put a creature card from their hand onto the battlefield.",
                 # counted puts of Auras (host choice) and subtype lists stay out
                 "{T}: Put up to two Aura cards from your hand onto the battlefield.",
                 "{T}: Put any number of non-Saga permanent cards from your hand onto the battlefield.",
@@ -533,3 +533,129 @@ class Many(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.path.exists(ALL_CARDS), "card database not built")
+class ThatPlayer(unittest.TestCase):
+    """'That player / that opponent / its controller / target opponent may put ... from their hand' (#331)."""
+    def setUp(self):
+        self.db = CardDB(offline=True)
+        self.a, self.b = Player("a", [], Scripted()), Player("b", [], Scripted())
+        self.game = Game(self.a, self.b, random.Random(0), log=True)
+        self.game.turn, self.game.step = 2, "main1"
+        for p in (self.a, self.b):
+            p.library = [ISLAND] * 20
+            p.ai.attack, p.ai.block = (), {}
+            p.ai.respond = p.ai.respond_extras = lambda *args: None
+            for _ in range(5):
+                self.game.enter_battlefield(p, ISLAND).sick = False
+
+    def names(self, p):
+        return sorted(x.card.name for x in p.battlefield if not x.card.is_land)
+
+    def test_divine_gambit_the_exiled_permanents_controller_puts(self):
+        gambit = self.db.get("Divine Gambit")
+        self.assertEqual(gambit.unsupported, [])
+        for _ in range(2):
+            self.game.enter_battlefield(self.a, card("Plains", types="Basic Land — Plains",
+                                                     text="({T}: Add {W}.)")).sick = False
+        bear = self.game.enter_battlefield(self.b, BEAR2)
+        self.a.hand, self.b.hand = [gambit, BRUTE], [OGRE3, SHOCK]
+        self.assertTrue(self.game.cast(self.a, gambit, [bear]))
+        self.game.settle()
+        self.assertEqual((self.names(self.a), self.names(self.b)), ([], ["Three Ogre"]))
+        self.assertEqual([c.name for c in self.a.hand], ["Test Brute"])
+
+    def test_metamorphose_that_opponent_puts(self):
+        spell = self.db.get("Metamorphose")
+        self.assertEqual(spell.unsupported, [])
+        rock = self.game.enter_battlefield(self.b, ROCK)
+        self.b.hand = [OGRE3]
+        self.a.hand = [spell]
+        self.assertTrue(self.game.cast(self.a, spell, [rock]))
+        self.game.settle()
+        self.assertEqual(self.names(self.b), ["Three Ogre"])
+
+    def test_fold_into_aether_only_when_countered(self):
+        fold = self.db.get("Fold into Aether")
+        self.assertEqual(fold.unsupported, [])
+        self.b.hand = [BRUTE, OGRE3]
+        self.game._priority_depth = 1
+        self.assertTrue(self.game.cast(self.b, BRUTE, []))
+        self.a.hand = [fold]
+        self.assertTrue(self.game.cast(self.a, fold, [self.game.stack[-1]]))
+        self.game._priority_depth = 0
+        self.game.settle()
+        self.assertEqual(self.names(self.b), ["Three Ogre"])
+        self.assertIn("Test Brute", [c.name for c in self.b.graveyard])
+
+    def test_fold_into_aether_counter_fails(self):
+        from mtgsim.engine.state import StackItem
+        fold = self.db.get("Fold into Aether")
+        self.b.hand = [OGRE3]
+        gone = StackItem(self.b, [], [], card=BRUTE, kind="spell")      # not on the stack any more
+        stays = StackItem(self.b, [], [], card=BRUTE, kind="spell")
+        self.game.stack.append(stays)
+        eff = fold.spell_effects[-1]
+        hand_put.resolve(self.game, self.a, eff, None, None, stays)       # still on the stack: not countered
+        self.assertEqual(self.names(self.b), [])
+        self.game.stack.remove(stays)
+        hand_put.resolve(self.game, self.a, eff, None, None, gone)
+        self.assertEqual(self.names(self.b), ["Three Ogre"])
+
+    def test_braids_the_upkeep_player_puts(self):
+        braids = self.game.enter_battlefield(self.a, self.db.get("Braids, Conjurer Adept"))
+        self.assertEqual(braids.card.unsupported, [])
+        self.a.hand, self.b.hand = [BRUTE], [OGRE3]
+        self.game.turn += 1
+        self.game.begin_upkeep(self.b)
+        self.game.settle()
+        self.assertEqual(self.names(self.b), ["Three Ogre"])
+        self.assertEqual(self.names(self.a), ["Braids, Conjurer Adept"])
+
+    def test_refusals_and_ai_value(self):
+        for text in ("If that spell is countered this way, each player may put a creature card from their hand "
+                     "onto the battlefield.",
+                     "That player may put a creature card from your hand onto the battlefield."):
+            c = card("Refusal Test", "{1}", "Instant", text)
+            self.assertTrue(c.unsupported, text)
+        eff = self.db.get("Divine Gambit").spell_effects[-1]
+        self.b.hand = [OGRE3]
+        self.assertLess(hand_put.value(self.game, self.a, eff, None), 0)
+
+
+class UpToX(unittest.TestCase):
+    """'Put up to X land cards from your hand onto the battlefield [tapped], where X is ...' and a paid {X}."""
+    def setUp(self):
+        self.a, self.b = Player("a", [], Scripted()), Player("b", [], Scripted())
+        self.game = Game(self.a, self.b, random.Random(0), log=True)
+        self.game.turn, self.game.step = 2, "main1"
+        for p in (self.a, self.b):
+            p.library = [ISLAND] * 20
+
+    def test_where_x(self):
+        c = card("Probe Mover", "{1}", "Artifact", "{T}: Put up to X land cards from your hand onto the battlefield "
+                 "tapped, where X is the number of creatures you control.")
+        self.assertEqual(c.unsupported, [])
+        mover = self.game.enter_battlefield(self.a, c)
+        for _ in range(2):
+            self.game.enter_battlefield(self.a, BEAR2)
+        self.a.hand = [ISLAND, ISLAND, ISLAND]
+        self.assertTrue(self.game.activate_ability(self.a, mover, len(mover.activated) - 1))
+        self.game.settle()
+        lands = [x for x in self.a.battlefield if x.card.is_land]
+        self.assertEqual(len(lands), 2)
+        self.assertTrue(all(x.tapped for x in lands))
+        self.assertEqual(len(self.a.hand), 1)
+
+    def test_paid_x(self):
+        c = card("Probe Mover", "{1}", "Artifact", "{X}, {T}: Put up to X land cards from your hand onto the battlefield.")
+        self.assertEqual(c.unsupported, [])
+        mover = self.game.enter_battlefield(self.a, c)
+        for _ in range(3):
+            self.game.enter_battlefield(self.a, ISLAND).sick = False
+        forest = card("Forest", types="Basic Land — Forest", text="({T}: Add {G}.)")
+        self.a.hand = [forest, forest, forest]
+        self.assertTrue(self.game.activate_ability(self.a, mover, len(mover.activated) - 1, x=2))
+        self.game.settle()
+        self.assertEqual(sum(x.card.name == "Forest" for x in self.a.battlefield), 2)

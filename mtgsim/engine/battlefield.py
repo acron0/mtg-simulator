@@ -101,6 +101,7 @@ class BattlefieldMixin:
             perm.mana_spent = cast[2]
             perm.mana_colors = frozenset(getattr(self, "_entry_mana_colors", ()))     # converge
             perm.mana_by_color = dict(getattr(self, "_entry_mana_by_color", {}))
+            perm.was_cast = True       # already as it enters ("if it wasn't cast", Freestrider Commando)
         others = sum(x.card.is_land for x in p.battlefield)
         cond = card.tapped_condition
         if cond.startswith("other_subtype:"):
@@ -194,6 +195,9 @@ class BattlefieldMixin:
         if card.advanced_rules.get("cx_etb_if"):
             from .. import cx_replace
             cx_replace.entry_counters(self, p, perm)
+        if card.advanced_rules.get("cx_etb_q"):       # "... for each mana spent to cast it" (cx_replace)
+            from .. import cx_replace
+            cx_replace.entry_spent_counters(self, perm)
         if card.entry_counter_quantity:
             from ..backlog_templates import amount
             kind, spec = card.entry_counter_quantity

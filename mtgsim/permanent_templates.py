@@ -195,6 +195,12 @@ def selector(text, *, plural=False):
         result['other'] = True
         text = text.split(' ', 1)[1]
     text = re.sub(r'^(?:a|an) ', '', text, flags=re.I)
+    # "target permanent other than ~" (#645): the source itself is excluded, like "another"
+    other = re.search(r' other than (?:~|this (?:creature|permanent|artifact|enchantment|land))$', text, re.I)
+    if other:
+        result['other'] = result['other_than_source'] = True
+        text = text[:other.start()]
+    text = re.sub(r'(\bnon[a-z]+), (?=non[a-z]+\b)', r'\1 ', text, flags=re.I)    # "nonland, nontoken permanent"
     # "creatures named Paper Tiger", "other creatures you control named ~", "creature named ~ you control" (#314):
     # a name, read up to a controller / zone phrase or the end ("~" is the source's own name)
     text = re.sub(r" on the battlefield( named .+)$", r"\1", text)    # "other creature on the battlefield named ~"
@@ -213,7 +219,8 @@ def selector(text, *, plural=False):
             text = re.sub(re.escape(scope), '', text, flags=re.I)
             result['owner'] = label
     for scope, label in ((" you control", 'mine'), (" an opponent controls", 'opp'), (" you don't control", 'opp'), (" your opponents control", 'opp'),
-                         (" each opponent controls", 'opp'), (" target opponent controls", 'opp')):
+                         (" each opponent controls", 'opp'), (" target opponent controls", 'opp'),
+                         (" that player controls", 'that_player'), (" defending player controls", 'defending')):
         if scope in text.lower():
             if 'controller' in result or text.lower().count(scope) != 1:
                 return None
@@ -221,19 +228,24 @@ def selector(text, *, plural=False):
             if tail and not tail.startswith((' with ', ' without ')):
                 return None
             text = re.sub(re.escape(scope), '', text, flags=re.I)
+            if label in ('that_player', 'defending'):
+                # the trigger's player / the player the source attacks (#338): an opponent wherever only "opp" is
+                # read; matches() narrows it to that exact player when the trigger gives one (scope_player)
+                result['scope'] = label
+                label = 'opp'
             result['controller'] = label
     base = re.search(r' with base power and toughness (\d+)/(\d+)$', text, re.I)
     if base:
         result['base_pt'] = [int(base[1]), int(base[2])]
         text = text[:base.start()]
     # Only one supported trailing predicate; additional text fails below.
-    m = re.search(r' with (power|toughness|mana value) (\d+) or (less|greater)$', text, re.I)
+    m = re.search(r' with (power|toughness|mana value) (\d+)(?: or (less|greater))?$', text, re.I)
     rel = re.search(r' with toughness greater than (?:its|their) power$', text, re.I)
     if rel:          # Doran's friends: "each creature you control with toughness greater than its power"
         result['tough_gt_power'] = True
         text = text[:rel.start()]
     elif m:
-        result['stat'] = [m[1].lower(), '<=' if m[3].lower() == 'less' else '>=', int(m[2])]
+        result['stat'] = [m[1].lower(), '==' if not m[3] else '<=' if m[3].lower() == 'less' else '>=', int(m[2])]
         text = text[:m.start()]
     else:
         m = re.search(rf' (with|without) (?:an? )?({_COUNTER}) counters?(?: on (?:it|them))?$', text, re.I)
@@ -269,7 +281,7 @@ def selector(text, *, plural=False):
                 types.append(low)
             elif low in ('tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
                          'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored',
-                         'suspected'):
+                         'suspected', 'snow', 'nonsnow') or low.startswith('non') and low[3:] in _TYPES:
                 result.setdefault('traits', []).append(low)
             elif low in _COLORS:
                 result.setdefault('colors', []).append(_COLORS[low])
@@ -286,6 +298,38 @@ def selector(text, *, plural=False):
         else:
             result['types_any'] = ['permanent']
     return result
+
+
+def scope_player(game, scope):
+    """The player "that player" / "defending player" names for the ability whose targets are being chosen or
+    checked, or None when it can't be told (then the selector's "opp" stands)."""
+    if game is None:
+        return None
+    from .engine.state import Permanent, Player, StackItem
+    item = getattr(game, "target_source", None)
+    if not isinstance(item, StackItem):
+        item = getattr(game, "resolving_item", None) or item       # group effects: the resolving ability
+    ctx = getattr(game, "trigger_context", None)
+    if ctx is None and isinstance(item, StackItem):
+        ctx = item.context
+    if scope == 'that_player':
+        chosen = getattr(game, "_choosing_targets", None) if isinstance(getattr(game, "_choosing_targets", None), list) \
+            else (item.targets if isinstance(item, StackItem) else [])
+        named = [t for t in chosen or () if isinstance(t, Player)]
+        if named:
+            return named[0]                 # "Target player ... target creature that player controls"
+        if isinstance(ctx, StackItem):
+            ctx = ctx.controller            # a cast trigger's context is the spell: its caster
+        return ctx if isinstance(ctx, Player) else None
+    src = item.source if isinstance(item, StackItem) else item
+    attacked = None
+    for obj in (ctx, src):      # the attacker: the trigger's event object ("Whenever a creature attacks"), else ~
+        attacked = game.attack_targets.get(obj) if isinstance(obj, Permanent) else None
+        if attacked is not None:
+            break
+    if isinstance(attacked, Permanent):
+        attacked = attacked.controller
+    return attacked if isinstance(attacked, Player) else None
 
 
 def _named(permanent, name, source) -> bool:
@@ -310,7 +354,11 @@ def matches(game, permanent, spec, controller, source=None):
         return False
     if 'name' in spec and not _named(permanent, spec['name'], source):
         return False
-    if spec.get('controller') and (permanent.controller is controller) != (spec['controller'] == 'mine'):
+    scoped = scope_player(game, spec['scope']) if spec.get('scope') else None
+    if scoped is not None:
+        if permanent.controller is not scoped:
+            return False
+    elif spec.get('controller') and (permanent.controller is controller) != (spec['controller'] == 'mine'):
         return False
     if spec.get('owner') and (permanent.owner is controller) != (spec['owner'] == 'mine'):
         return False
@@ -327,6 +375,10 @@ def matches(game, permanent, spec, controller, source=None):
     if any(s in subs or changeling and s in _CREATURE_SUBTYPES for s in spec.get('not_subtypes', [])):
         return False
     if not all(c in permanent.card.colors for c in spec.get('colors', [])):
+        return False
+    if 'colors_any' in spec and not set(spec['colors_any']) & set(permanent.card.colors):       # "red or green"
+        return False
+    if set(spec.get('not_colors', ())) & set(permanent.card.colors):                            # "nonblack"
         return False
     for trait in spec.get('traits', []):
         if trait in ('tapped', 'untapped') and permanent.tapped != (trait == 'tapped'):
@@ -345,6 +397,8 @@ def matches(game, permanent, spec, controller, source=None):
             return False
         if trait == 'suspected' and not permanent.has('suspected'):
             return False
+        if trait in ('snow', 'nonsnow') and bool(permanent.card.snow) != (trait == 'snow'):
+            return False
     if 'counter' in spec:
         name, positive = spec['counter']
         if (permanent.counters.get(name, 0) > 0) != positive:
@@ -358,7 +412,7 @@ def matches(game, permanent, spec, controller, source=None):
     if 'stat' in spec:
         stat, op, n = spec['stat']
         value = permanent.card.cmc if stat == 'mana value' else getattr(permanent, stat)
-        if not (value <= n if op == '<=' else value >= n):
+        if not (value <= n if op == '<=' else value >= n if op == '>=' else value == n):
             return False
     return True
 
@@ -402,6 +456,8 @@ def build(kind, obj, *, amount=0, amount2=0, data=None):
         return None
     target, more = subj
     combined = dict(more, **(data or {}))
+    if isinstance(more.get('selector'), dict) and more['selector'].get('other_than_source'):
+        combined['other_than_source'] = True
     if target == 'group':
         return Effect('permanent_group', data={'selector': more['selector'], 'effect':
                       Effect(kind, amount, amount2, target='self', data=data or {})})

@@ -80,6 +80,9 @@ def _swap(s, spec):
 
 def parse_rider(s, effects) -> bool:
     """cards/parse.py sentence hook: True when s was read (its Effects appended to effects)."""
+    from .they_each import parse_rider as they_each
+    if they_each(s, effects):          # "They each get +2/+2 until end of turn" after counted targets
+        return True
     m = _REF.search(s)
     if m is None:
         return False

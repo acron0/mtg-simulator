@@ -199,6 +199,9 @@ class CostsMixin:
         p.expend = (self.turn, old + len(payment))
         for n in range(old + 1, old + len(payment) + 1):
             self.fire(p, "expend", subject=n)
+        for s in payment:       # "Whenever a player taps a land for mana" (cx_trig_heads)
+            if isinstance(s, Permanent) and s.tapped and s in s.controller.battlefield:
+                self.fire(s.controller, "tapped_for_mana", s)
         return payment
 
     def x_quantity(self, p: Player, spec: tuple, item, prev) -> int:
@@ -223,6 +226,11 @@ class CostsMixin:
             card = spell.card if isinstance(spell, StackItem) else None
             if card is None:
                 return 0
+            if spec[1] == "mana_spent":         # "the amount of mana spent to cast that spell"
+                from ..cx_grammar_quantity import spent_amount
+                return spent_amount(spell)
+            if spec[1] == "converge":           # "... colors of mana spent to cast that spell"
+                return len(set(getattr(spell, "mana_colors", ())) & set("WUBRG"))
             if spec[1] == "colors":
                 return len(card.colors)
             if spec[1] == "generic":
@@ -826,7 +834,8 @@ class CostsMixin:
                 "retrace": p.graveyard, "beam": p.graveyard,
                 "escape": p.graveyard, "impulse": p.exile, "suspended": p.exile, "rebound": p.exile,
                 "cascade": p.exile, "cascade_adventure": p.exile,
-                "rebound_adventure": p.exile, "discover": p.exile, "siege": p.exile, "cx_top": p.library}.get(kind, p.hand)
+                "rebound_adventure": p.exile, "discover": p.exile, "siege": p.exile, "cx_top": p.library,
+                "cx_top_life": p.library}.get(kind, p.hand)
 
     def _available(self, p: Player, card: CardDef) -> bool:
         base, kind, _ = self._origin(card)
@@ -838,9 +847,9 @@ class CostsMixin:
             return False
         if kind == "prepared":
             return any(x.front is base and x.prepared for x in p.battlefield)
-        if kind == "cx_top":
+        if kind in ("cx_top", "cx_top_life"):
             from .. import cx_top
-            return cx_top.spell_ok(p, base)
+            return cx_top.spell_ok(p, base, life=kind == "cx_top_life")
         return base in self._zone(p, kind)
 
     def can_cast_now(self, p: Player, card: CardDef, *, during_resolution=False) -> bool:
@@ -898,7 +907,9 @@ class CostsMixin:
                     and not (card.is_sorcery and (player_flag(self, p, "sorcery_flash") or any(
                         x.card.advanced_rules.get("sorcery_flash") and not x.abilities_suppressed
                         for x in p.battlefield))):
-                return False
+                from ..cx_flash_perm import flash_allowed
+                if not flash_allowed(self, p, card):
+                    return False
         if any(e.target == "spell" and not e.data.get("optional_target") and not self.legal_targets(p, e)
                for e in card.spell_effects):
             return False

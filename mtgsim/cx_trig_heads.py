@@ -17,11 +17,21 @@ import re
 
 from . import cx_events
 
-FLAGS = {"alone", "atk_cursed", "dmg_cursed", "tg_spell", "tg_spell_mine", "dmg_n", "dmgd", "you_put"}
+FLAGS = {"att", "alone", "atk_cursed", "dmg_cursed", "tg_spell", "tg_spell_mine", "dmg_n", "dmgd", "you_put"}
 
 
 def verb_arg(flag: str, text: str, subject: dict):
     """Read the argument of a verb into the subject spec; None refuses the head."""
+    if flag == "att":
+        m = re.search(r"attached to (.+)$", text)
+        host = cx_events._object_subject(m[1], head=True)
+        if host is None or host["host"] or host["batch"] or host["other"] or host["self"] and m[1] != "~":
+            return None
+        if subject["self"] or subject["host"] or not subject["alts"] or \
+                not all(any(w == "Aura" for w in ws) for ws in subject["alts"]):
+            return None         # only Auras fire the event (auras.attach); Equipment attach elsewhere
+        subject["att"] = host
+        return True
     if flag == "dmg_n":
         m = re.search(r"(\d+) or more damage", text)
         subject["dmg_n"] = int(m[1])
@@ -40,6 +50,8 @@ def verb_arg(flag: str, text: str, subject: dict):
 
 def flag_ok(game, flag, spec, perm, obj, context) -> bool:
     from .engine.state import Permanent
+    if flag == "att":         # obj: the Aura; context: what it became attached to
+        return isinstance(context, Permanent) and cx_events._subject_ok(game, spec["att"], perm, context)
     if flag == "alone":
         return len(game.attackers) == 1
     if flag == "atk_cursed":
@@ -63,8 +75,8 @@ def flag_ok(game, flag, spec, perm, obj, context) -> bool:
     return True
 
 
-_COUNTER = re.compile(r"(?:one or more \+1/\+1 counters are put on|(?P<you>you put one or more \+1/\+1 counters on)) "
-                      r"(?P<s>.+)")
+_COUNTER = re.compile(r"(?:one or more (?P<k1>[+-]1/[+-]1) counters are put on|"
+                      r"(?P<you>you put one or more (?P<k2>[+-]1/[+-]1) counters on)) (?P<s>.+)")
 
 
 def counter_head(body: str):
@@ -72,21 +84,61 @@ def counter_head(body: str):
     m = _COUNTER.fullmatch(body)
     if not m:
         return None
-    if m["s"] in ("~", "it", "this creature"):
+    kind = m["k1"] or m["k2"]
+    if kind not in ("+1/+1", "-1/-1"):
+        return None
+    raw = "p1_added" if kind == "+1/+1" else "m1_added"
+    if m["s"] in ("it", "this creature") or m["s"] == "~" and raw == "p1_added":
         return None             # the base table's "p1_added" self head
     subject = cx_events._object_subject(m["s"], head=True)
     if subject is None or subject["batch"] or subject["host"]:
         return None
-    subject["flags"] = {"p1_added": "you_put" if m["you"] else ""}
+    subject["flags"] = {raw: "you_put" if m["you"] else ""}
     subject["by"] = None
-    return ("p1_added",), subject
+    return (raw,), subject
 
 
 # "a source an opponent controls deals damage to you": the damaged player is you, the damage came from them
 cx_events._PLAYER_SUBJ["a source an opponent controls"] = "src_opp"
-cx_events._PLAYER_VERBS[0:0] = [(r"deals? damage to you", "src_dmg_me")]
-cx_events._PLAYER_RAW["src_dmg_me"] = ("player_damaged",)
-cx_events._OBSERVED.update({"p1_added", "unblocked"})
+cx_events._PLAYER_VERBS[0:0] = [
+    (r"deals? damage to you", "src_dmg_me"),
+    # "Whenever you become the target of a spell [or ability] [an opponent controls]": engine/stack.check_ward fires
+    # player_targeted for each targeted player, with the targeting item as context
+    (r"becomes? the target of a spell or ability an opponent controls", "ptg_opp"),
+    (r"becomes? the target of a spell an opponent controls", "ptg_spell_opp"),
+    (r"becomes? the target of a spell or ability", "ptg_any"),
+    (r"becomes? the target of a spell", "ptg_spell"),
+    (r"taps? ~ for mana", "tap_self"),
+    (r"taps? (an?) ([\w ]+?) for mana", "tap_mana"),
+]
+cx_events._PLAYER_RAW.update({"src_dmg_me": ("player_damaged",), "ptg_opp": ("player_targeted",),
+                              "ptg_spell_opp": ("player_targeted",), "ptg_any": ("player_targeted",),
+                              "ptg_spell": ("player_targeted",), "tap_self": ("tapped_for_mana",),
+                              "tap_mana": ("tapped_for_mana",)})
+cx_events._OBSERVED.update({"p1_added", "m1_added", "unblocked", "player_targeted", "tapped_for_mana",
+                            "aura_attached"})
+
+
+def player_arg(kind, vm, spec) -> bool:
+    """Read a player verb's own argument into the spec; False refuses the head."""
+    if kind == "tap_mana":
+        alts = cx_events._desc_alts(vm[2])
+        if alts is None or not all(any(_is_land_word(w) for w in ws) for ws in alts):
+            return False
+        spec["alts"] = alts
+    return True
+
+
+def _is_land_word(w: str) -> bool:
+    from .permanent_templates import _SUBTYPE_TYPES
+    return w.lower() == "land" or "land" in _SUBTYPE_TYPES.get(w.lower(), ())
+
+
+def tapped_ok(game, spec, source, perm) -> bool:
+    """The tapped permanent fits "~" / "a <land desc>"."""
+    if spec["kind"] == "tap_self":
+        return source is perm
+    return source is not None and cx_events._perm_fits(game, source, spec["alts"])
 
 
 def subject_takes(who: str, kind: str) -> bool:
@@ -99,6 +151,11 @@ def subject_takes(who: str, kind: str) -> bool:
 
 
 def player_ok(game, spec, actor, me) -> bool:
+    if spec["kind"].startswith("ptg_"):
+        item = getattr(game, "event_targeter", None)
+        if item is None or spec["kind"] in ("ptg_spell", "ptg_spell_opp") and not item.is_spell:
+            return False
+        return not spec["kind"].endswith("opp") or item.controller is not me
     if spec["kind"] == "src_dmg_me":
         by = getattr(game, "event_dmg_by", None)
         return spec["player"] == "src_opp" and actor is me and by is not None and by is not me

@@ -464,13 +464,12 @@ class Permanent:
         game = getattr(self.controller, '_game', None)
         if game is not None:
             matches = _lazy("permanent_templates", "matches")
-            for player in game.players:
-                for source in player.battlefield:
-                    grants = source.card.static_keyword_grants
-                    # cheapest test first: most permanents grant nothing, and abilities_suppressed is costly (#698)
-                    if grants and any(kw in kws for _, kws in grants) and not source.abilities_suppressed and \
-                            any(kw in kws and matches(game, self, spec, source.controller, source) for spec, kws in grants):
-                        return True
+            # only permanents that may grant keywords (the cached index); cheapest test first (#698)
+            for source in _lazy("residual_templates", "field_sources")(game, "static_keyword_grants"):
+                grants = source.card.static_keyword_grants
+                if grants and any(kw in kws for _, kws in grants) and not source.abilities_suppressed and \
+                        any(kw in kws and matches(game, self, spec, source.controller, source) for spec, kws in grants):
+                    return True
         if self.card.level_blocks:
             from ..batch1_templates import level_block
             block = level_block(self)
@@ -480,10 +479,10 @@ class Permanent:
             from ..cx_triggers import hexproof_entered
             if hexproof_entered(self):
                 return True
-        if kw in self.card.keywords or kw in self.temp_kw or kw in self.perm_kw or (kw in KEYWORDS and self.counters.get(kw, 0) > 0):
-            return True
+        fields = _lazy("residual_templates", "field_sources") if game is not None else None
         if kw in ('training', 'dethrone') and self.is_creature and any(k == kw and not (other and source is self)
-                                   for source in self.controller.battlefield
+                                   for source in (fields(game, "granted_attack_keywords") if fields else
+                                                  self.controller.battlefield) if source.controller is self.controller
                                    for k, other in source.card.granted_attack_keywords
                                    if not source.silenced and not any('loses_abilities' in a.card.aura_flags for a in source.auras)):
             return True
@@ -505,25 +504,27 @@ class Permanent:
                 return True
         if _lazy("cx_statics", "grants")(self, kw):
             return True
+        # permanents with keyword_sub grants: all players' (the index) or, with no game, the controller's
+        subs = fields(game, "keyword_sub") if fields else list(self.controller.battlefield)
         if any((sub in self.card.subtypes or sub == "Face-down" and self.hidden is not None) and k == kw
                and not (other and x is self)
-               for x in self.controller.battlefield for sub, k, other in x.card.keyword_sub):
+               for x in subs if x.controller is self.controller for sub, k, other in x.card.keyword_sub):
             return True
         # A chosen-type grant (Shimmer: "Each land of the chosen type has phasing") — the
         # "@chosen" marker reads the source's chosen_type; these grants are not scoped to
         # the source's controller.
-        game = getattr(self.controller, "_game", None)
-        players = game.players if game is not None else (self.controller,)
         if any(sub == "@chosen" and k == kw and not (other and x is self)
                and getattr(x, "chosen_type", "") and x.chosen_type in self.card.subtypes
-               for pl in players for x in pl.battlefield for sub, k, other in x.card.keyword_sub):
+               for x in subs for sub, k, other in x.card.keyword_sub):
             return True
         if self.is_creature and self.p1 > 0 and any(kw in x.card.counter_team_keywords
-                                                    for x in self.controller.battlefield):
+                                                    for x in (fields(game, "counter_team_keywords") if fields else
+                                                              self.controller.battlefield)
+                                                    if x.controller is self.controller):
             return True
         if kw in TEAM_KEYWORDS and self.is_creature:
-            for x in self.controller.battlefield:
-                if kw in x.card.team_keywords:
+            for x in (fields(game, "team_keywords") if fields else self.controller.battlefield):
+                if x.controller is self.controller and kw in x.card.team_keywords:
                     return True
         if self.card.keyword_at_counters and self.p1 >= self.card.keyword_at_counters[0]:
             return kw == self.card.keyword_at_counters[1]

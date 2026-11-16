@@ -10,13 +10,30 @@ SUBS = []
 NUMBER = r'(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)'
 
 
+def _sizes(game):
+    players = game.players
+    if len(players) == 2:       # the common case, without a generator (millions of calls per game: #698)
+        return len(players[0].battlefield), len(players[1].battlefield)
+    return tuple(len(p.battlefield) for p in players)
+
+
 def _source_index(game):
-    sizes = tuple(len(p.battlefield) for p in game.players)
+    sizes = _sizes(game)
     cached = getattr(game, '_residual_source_index', None)
     if cached is None or cached[0] != sizes:
         sources(game, '')
         cached = game._residual_source_index
     return cached[1]
+
+
+_FIELDS = ("static_keyword_grants", "keyword_sub", "team_keywords", "counter_team_keywords",
+           "granted_attack_keywords")
+
+
+def field_sources(game, field):
+    """The battlefield permanents whose card may have a non-empty ``field`` (one of _FIELDS), in battlefield order:
+    a scan over them finds what a scan over every permanent would (#698)."""
+    return [x for x in _source_index(game).get("@" + field, ()) if x in x.controller.battlefield]
 
 
 def has_source_key(game, key) -> bool:
@@ -29,7 +46,7 @@ def sources(game, key):
     # Index possible providers, then check live text/suppression on every lookup.
     # Card setters and zone boundaries invalidate it; lengths also cover fixture
     # list appends/removals. Unrelated permanents need no ability checks.
-    sizes = tuple(len(p.battlefield) for p in game.players)
+    sizes = _sizes(game)
     cached = getattr(game, '_residual_source_index', None)
     if cached is None or cached[0] != sizes:
         index = {}
@@ -38,6 +55,9 @@ def sources(game, key):
                 keys = permanent.card.advanced_rules.keys() | permanent.copiable_card.advanced_rules.keys()
                 for name in keys:
                     index.setdefault(name, []).append(permanent)
+                for field in _FIELDS:       # keyword-giving CardDef fields Permanent.has scans for (#698)
+                    if getattr(permanent.card, field, None) or getattr(permanent.copiable_card, field, None):
+                        index.setdefault("@" + field, []).append(permanent)
         cached = sizes, index
         game._residual_source_index = cached
     return [x for x in cached[1].get(key, ()) if x in x.controller.battlefield and

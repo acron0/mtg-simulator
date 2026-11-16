@@ -859,6 +859,10 @@ class HeuristicAI:
                 from .batch1_templates import bestow_worth
                 worth = bestow_worth(game, me, card)
                 return None if worth is None else (worth, None)
+            from .evoke_costs import ai_value as evoke_value      # "Evoke—Exile a white card ..." (#646)
+            evoked = evoke_value(self, game, me, card, precombat)
+            if evoked is not None:
+                return (evoked, None) if evoked > 0 else None
             etb = self._etb_value(game, me, card, precombat)
             if etb < 0:
                 return None  # its enters trigger costs us more than the permanent is worth

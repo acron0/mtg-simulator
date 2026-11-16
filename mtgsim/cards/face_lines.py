@@ -399,6 +399,10 @@ def _face_land_and_mana_lines(st, line):
                 return None
         m = re.fullmatch(r"Equip (\{[^ .]+\})(\. This ability costs [^.]+ less to activate[^.]*\.)?", line)
         if m:
+            rules = extra.get("advanced_rules", {})
+            if rules.get("equip_restriction") and extra.get("equip_cost") is not None:
+                # "Equip Pirate {1}" came first: it's an extra, cheaper equip, not a limit on this one (#744)
+                rules["equip_typed"] = (rules.pop("equip_restriction"), extra["equip_cost"])
             extra["equip_cost"] = parse_mana_cost(m[1])
             if m[2]:
                 approximations.append(f"cost reduction ignored:{m[2]}")
@@ -413,6 +417,13 @@ def _face_land_and_mana_lines(st, line):
                 restriction = " or ".join(kinds)
             else:
                 restriction = None
+            if restriction is not None and extra.get("equip_cost") is not None and \
+                    not extra.get("advanced_rules", {}).get("equip_restriction"):
+                # a plain "Equip {2}" came first: this is another, typed equip (#744)
+                extra.setdefault("advanced_rules", {})["equip_typed"] = (restriction, parse_mana_cost(m[2]))
+                if m[3]:
+                    approximations.append(f"cost reduction ignored:{m[3]}")
+                return None
             if restriction is not None:
                 extra["equip_cost"] = parse_mana_cost(m[2])
                 extra.setdefault("advanced_rules", {})["equip_restriction"] = restriction

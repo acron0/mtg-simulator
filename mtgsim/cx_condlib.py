@@ -1091,6 +1091,11 @@ def parse(phrase: str) -> str:
                 subject = re.match(r"(you control|an opponent controls) ", left, re.I)
                 if subject:
                     right = subject[0] + right
+            elif re.fullmatch(r"[A-Z][a-z]+", right.strip()):
+                # "you control a Mount or Vehicle": the article carries over too (#630)
+                subject = re.match(r"(you control|an opponent controls) (an?) [A-Z][a-z]+$", left)
+                if subject:
+                    right = f"{subject[1]} {'an' if right.strip()[0] in 'AEIOU' else 'a'} {right.strip()}"
             a, b = _plain(left), _plain(right)
             if a and b:
                 return _code(kind, a, b)

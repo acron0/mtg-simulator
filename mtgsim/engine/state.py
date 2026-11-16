@@ -31,6 +31,9 @@ class PlayerCounters(dict):
         old = self.get(name, 0)
         if value > old and not player_counter_allowed(self.owner, name):
             value = old
+        if value > old:      # "you get that many plus one of each of those kinds of counters instead" (#407)
+            from ..cx_replace_amounts import modify_player
+            value = old + modify_player(self.owner, name, value - old)
         super().__setitem__(name, value)
 
 

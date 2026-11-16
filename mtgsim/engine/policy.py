@@ -151,6 +151,15 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return choose(game, me, eff)
     if k in ('graveyard_exile_all', 'graveyard_exile_choice'):
         return opp
+    if k == 'player_loses':
+        return opp
+    if k == 'life_total':
+        op = eff.data['op']
+        if op == 'exchange':
+            return opp if opp.life > me.life else None
+        if op == 'double':
+            return me
+        return me if eff.amount > me.life else opp if eff.amount < opp.life else None
     if k == 'give_control_choice':      # a cost: give away the least valuable permanent that fits
         return min(mine, key=perm_value, default=None)
     if k == 'adapt_exception':

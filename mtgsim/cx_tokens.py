@@ -460,11 +460,21 @@ _RIDERS = [
      lambda m: {"eot_keywords": tuple(_split_list(m[1].lower()))}),
     (re.compile(r"(?:it|they|that token|those tokens|the tokens?) gains? ([a-z ,]+)", re.I),
      lambda m: {"granted_keywords": tuple(_split_list(m[1].lower()))}),
+    # "They have "When this token dies, ..."" (#540): the token is created with the ability (its own card's trigger)
+    (re.compile(r'(?:it|they|that token|those tokens|the tokens?) (?:has|have) "((?:When|Whenever|At) [^"]+)"', re.I),
+     lambda m: {"token_triggers": _quoted(m[1])}),
     (re.compile(rf"(sacrifice|exile) {_THEM} at end of combat", re.I),
      lambda m: {"leave": ("end_combat", m[1].lower())}),
     (re.compile(rf"(sacrifice|exile) {_THEM} at the beginning of the next end step", re.I),
      lambda m: {"leave": ("end_step", m[1].lower())}),
 ]
+
+
+def _quoted(text):
+    """The Triggers of a quoted ability a token is created with, or None."""
+    from .cx_trigger_grants import quoted_triggers
+    got = quoted_triggers(text)
+    return list(got) if got else None
 
 
 _PLAIN_TOKEN = {"name", "power", "toughness", "keywords", "attacking", "triggers", "artifact", "pt_per", "colors",
@@ -505,6 +515,8 @@ def parse_rider(sentence: str, effects: list) -> bool:
                 return False
             effects[-1] = converted
         extra = build(m)
+        if "token_triggers" in extra and extra["token_triggers"] is None:
+            return False
         from .cards.model import KEYWORDS
         if not set(extra.get("eot_keywords", ()) + extra.get("granted_keywords", ())) <= KEYWORDS:
             return False
@@ -514,6 +526,14 @@ def parse_rider(sentence: str, effects: list) -> bool:
         targets = effects[run:]
         if any(key in e.data for e in targets for key in extra):
             return False
+        if "token_triggers" in extra:
+            if not all("card" in e.data for e in targets):
+                return False            # a predefined token (Food, Treasure ...): no card of its own to extend
+            for i, e in enumerate(targets, run):
+                card = e.data["card"]
+                card = dataclasses.replace(card, triggers=list(card.triggers) + list(extra["token_triggers"]))
+                effects[i] = dataclasses.replace(e, data=dict(e.data, card=card))
+            return True
         for i, e in enumerate(targets, run):
             effects[i] = dataclasses.replace(e, data=dict(e.data, **extra))
         return True

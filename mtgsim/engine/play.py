@@ -340,6 +340,9 @@ class PlayMixin:
         if kind == "cx_top":       # "Once each turn, you may cast ... from the top of your library" (#625)
             from ..cx_top import note_cast
             note_cast(self, p, base)
+        elif kind.startswith("group_alt_"):       # "Once each turn, you may pay {0} rather than pay ..." (#625)
+            from ..group_altcost import note_cast as note_group
+            note_group(self, p, base, kind)
         self.stack.append(item)
         if item.physical_card is not None and item.move_origin is not None:
             before, origin, actor, _, _ = item.move_origin

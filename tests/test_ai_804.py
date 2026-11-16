@@ -4,6 +4,8 @@
 - An instant creature-token maker (Baloth Cage Trap) is cast at the opponent's end step like the other cantrips.
 - "Tap up to two target creatures. They don't untap ..." (Permafrost Trap): the tap's own freeze rider counts like a
   stun, and up to two creatures are valued.
+- "Attacking creatures get -3/-0 until end of turn" (Lethargy Trap): kill_attacker values a group effect on the
+  attackers with the grammar's group value (cast when the attack matters, e.g. lethal).
 """
 import random
 import unittest
@@ -82,6 +84,17 @@ class Traps(unittest.TestCase):
         a.hand = [self.db.get("Arrow Volley Trap")]
         self.assertIsNotNone(respond_in(g, a, b, "declare_attackers"))
         self.assertEqual(sum(x in b.battlefield for x in attackers), 2)        # 5 damage: a Bear and the Giant
+
+    def test_lethargy_trap_blunts_a_lethal_attack(self):
+        g, a, b = game()
+        self.lands(g, a, "Island", 1)
+        a.life = 8
+        attackers = [g.enter_battlefield(b, self.db.get("Hill Giant")) for _ in range(3)]
+        g.settle()
+        g.attackers = list(attackers)
+        a.hand = [self.db.get("Lethargy Trap")]
+        self.assertIsNotNone(respond_in(g, a, b, "declare_attackers"))
+        self.assertEqual([x.power for x in attackers], [0, 0, 0])
 
     def test_arrow_volley_trap_is_held_for_a_single_small_attacker(self):
         g, a, b = game()

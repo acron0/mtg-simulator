@@ -1669,6 +1669,13 @@ class HeuristicAI:
                 etb = [e for t in card.triggers if t.event == "etb" for e in t.effects] or list(card.etb_effects)
                 plan = self._removal_on(game, me, dataclasses.replace(card, spell_effects=etb), attackers)
                 plan = None if plan is None else (plan[0], None)
+            elif card.spell_effects and all(e.kind == "cx_group" and "attacking" in
+                                            e.data.get("group", {}).get("selector", {}).get("traits", ())
+                                            for e in card.spell_effects):
+                # "Attacking creatures get -3/-0 until end of turn" (Lethargy Trap, #804): the grammar's own group
+                # value of the effect on each attacker, now during combat
+                got = [self._group_plan(game, me, e, card, False, True) for e in card.spell_effects]
+                plan = None if None in got else (sum(x[1] for x in got), [x[0] for x in got])
             elif card.spell_effects and all(e.kind == "divided_damage" for e in card.spell_effects):
                 # "N damage divided as you choose among any number of target attacking creatures" (Arrow Volley
                 # Trap, #804): what the planned division kills now

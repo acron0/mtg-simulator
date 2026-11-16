@@ -614,6 +614,8 @@ class StackMixin:
         c = eff.cond
         if not c:
             return True
+        if c == "your_turn":        # "if it's (not) your turn" (cx_condlib aliases; "!your_turn" negates below, #721)
+            return self.active is p
         if c == 'attacking_most_life':
             return counter_mechanics.is_attacking_most_life(self, item.source if item else None, p)
         phase_condition = phase_conditions.check(p, c, item)

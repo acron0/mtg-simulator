@@ -27,7 +27,7 @@ class Parsing(unittest.TestCase):
             self.assertIsNone(_keyword_triggers(kw), kw)
 
     def test_refusals(self):
-        for text in ("Creatures you control have riot.", "Other creatures you control have myriad.",
+        for text in ("Creatures you control have outlast {2}.", "Other creatures you control have myriad.",
                      "Equipped creature has frenzy 1."):
             c = card("Test Refused", "{3}", "Artifact — Equipment", text + "\nEquip {1}")
             self.assertTrue(c.unsupported, text)

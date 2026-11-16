@@ -463,6 +463,11 @@ class HeuristicAI:
     def reset(self):
         """Clear per-game state (run_match calls this on a fresh copy for every game)."""
         self._idle_turns = 0       # own turns in a row we kept mana up for a counter and cast nothing
+        self.gift_choices = {}     # gift spell name -> promise it? (gift_choice.plan, read by promise_gift)
+
+    def promise_gift(self, game: Game, me: Player, card: CardDef):
+        """Promise this gift spell's gift? The mode plan_spell chose for it, or None (the engine's default)."""
+        return getattr(self, "gift_choices", {}).pop(card.name, None)
 
     # -------------------------------------------------------------- mulligan
     def keep_hand(self, hand: list[CardDef], mulligans: int) -> bool:
@@ -799,6 +804,9 @@ class HeuristicAI:
 
     def plan_spell(self, game: Game, me: Player, card: CardDef, precombat: bool = False):
         """Return (value, targets) if the AI wants to cast card in its main phase, else None."""
+        if card.gift and not card.is_permanent:        # value both modes, promise only if it pays (#483)
+            from . import gift_choice
+            return gift_choice.plan(self, game, me, card, precombat)
         opp = game.opponent(me)
         if card.is_ability and any(e.kind == "unearth_return" for e in card.spell_effects):
             # Unearth: a hasty attacker for one turn; worth casting before combat when it can attack
@@ -1328,6 +1336,9 @@ class HeuristicAI:
                 pool = [x for x in opp.battlefield if x.card.is_land]
             elif eff.target == "artifact":
                 pool = [x for x in opp.battlefield if getattr(x.card, "is_artifact", False)]
+            elif eff.target == "artifact_enchantment":
+                pool = [x for x in opp.battlefield if getattr(x.card, "is_artifact", False)
+                        or "Enchantment" in x.card.types]
             if eff.kind in ("tap", "stun"):
                 pool = [c for c in opp.creatures if not c.tapped or eff.kind == "stun"]
             legal = [c for c in pool if _legal(game, me, eff, c, card)

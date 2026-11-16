@@ -222,7 +222,7 @@ class PlayMixin:
             from ..cx_mech import pay_beam
             if not pay_beam(self, p, base):
                 return False
-        if kind.startswith("cond_alt_"):
+        if kind.startswith(("cond_alt_", "gy_alt_", "ex_alt_")):
             from ..cx_altcost import pay as pay_alternative
             if not pay_alternative(self, p, base, kind):
                 return False
@@ -382,6 +382,8 @@ class PlayMixin:
             getattr(self, "next_discount", {}).pop(p.name, None)
             from ..cx_static_cost import spell_cast as temp_discounts_spent
             temp_discounts_spent(self, p, card)        # "the next Dragon spell you cast costs {2} less"
+            from ..spell_grants import spell_cast as next_grants_spent
+            next_grants_spent(self, p, card)           # "the next spell you cast this turn has convoke" (#633)
             from ..residual_templates import on_spell_cast
             on_spell_cast(self, p, item)
             copies.on_cast(self, p, item)

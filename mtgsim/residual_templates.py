@@ -10,6 +10,21 @@ SUBS = []
 NUMBER = r'(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)'
 
 
+def _source_index(game):
+    sizes = tuple(len(p.battlefield) for p in game.players)
+    cached = getattr(game, '_residual_source_index', None)
+    if cached is None or cached[0] != sizes:
+        sources(game, '')
+        cached = game._residual_source_index
+    return cached[1]
+
+
+def has_source_key(game, key) -> bool:
+    """Whether any permanent on the battlefield could carry advanced_rules[key] (the cached index, a superset):
+    False lets a hot path skip a scan that would find nothing (#698)."""
+    return key in _source_index(game)
+
+
 def sources(game, key):
     # Index possible providers, then check live text/suppression on every lookup.
     # Card setters and zone boundaries invalidate it; lengths also cover fixture

@@ -449,8 +449,10 @@ class Permanent:
             from ..permanent_templates import matches
             for player in game.players:
                 for source in player.battlefield:
-                    if not source.abilities_suppressed and any(kw in kws and matches(game, self, spec, source.controller, source)
-                            for spec, kws in source.card.static_keyword_grants):
+                    grants = source.card.static_keyword_grants
+                    # cheapest test first: most permanents grant nothing, and abilities_suppressed is costly (#698)
+                    if grants and any(kw in kws for _, kws in grants) and not source.abilities_suppressed and \
+                            any(kw in kws and matches(game, self, spec, source.controller, source) for spec, kws in grants):
                         return True
         if self.card.level_blocks:
             from ..batch1_templates import level_block

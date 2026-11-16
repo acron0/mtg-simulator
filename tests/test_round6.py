@@ -33,9 +33,11 @@ class Round6(Base):
     def test_overwrite_exiles_all_and_empowers(self):
         self.perm(BEAR)
         self.perm(BEAR, self.b)
-        item = self._item(None)     # "exiled this way" reads the resolving item's journal
-        for eff in WIPE.spell_effects:
-            self.game.resolve(self.a, eff, None, item)
+        # resolved as a spell: "exiled this way" counts what this spell's own exile did (#693)
+        from mtgsim.engine import StackItem
+        effects = list(WIPE.spell_effects)
+        self.game.stack.append(StackItem(self.a, effects, [None] * len(effects), card=WIPE, name=WIPE.name))
+        self.game.resolve_top()
         self.assertEqual(len(self.a.creatures) + len(self.b.creatures), 0)
         jace = next(x for x in self.a.battlefield if "Jace" in x.card.subtypes)
         self.assertEqual(jace.loyalty, 2)

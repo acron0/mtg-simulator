@@ -280,3 +280,5 @@ from .. import free_cast as _free_cast  # noqa: E402  "cast a spell from your ha
 _EFFECT_PATTERNS += _free_cast.EFFECT_PATTERNS
 from .. import cx_dmg_equal as _cx_dmg_equal  # noqa: E402  damage equal to a quantity (#626)
 _EFFECT_PATTERNS += _cx_dmg_equal.EFFECT_PATTERNS
+from .. import cx_owner_library as _cx_owner_library  # noqa: E402  "put it on top of its owner's library" (#628)
+_EFFECT_PATTERNS += _cx_owner_library.EFFECT_PATTERNS

@@ -63,8 +63,10 @@ def life_total(game, p, eff, target, opp, **_):
             game.change_life(p, b - a, "exchange life totals")
             game.change_life(players[0], a - b, "exchange life totals")
         return
+    lives = [pl.life for pl in game.players]
     for pl in players:
-        goal = max(pl.life, 0) * 2 if op == "double" else eff.amount
+        goal = (max(pl.life, 0) * 2 if op == "double" else min(lives) if op == "lowest" else max(lives)
+                if op == "highest" else eff.amount)
         game.change_life(pl, goal - pl.life, f"life total {op}")
         game.log(f"life total is now {pl.life}", pl)
 

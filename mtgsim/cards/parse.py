@@ -608,7 +608,8 @@ def _parse_face(data: dict) -> CardDef:
                     enters_tapped=enters_tapped, etb=etb, extra=extra, gate=gate, keywords=keywords, kicked=kicked,
                     level_marks=level_marks, loyalty_abilities=loyalty_abilities, mode_sink=mode_sink, modes=modes,
                     produces=produces, spell=spell, station_min=station_min, triggers=triggers,
-                    type_line=type_line, types=types, unsupported=unsupported, name=name, oracle=oracle)
+                    type_line=type_line, types=types, unsupported=unsupported, name=name, oracle=oracle,
+                    mana_cost=cost)
     for line in (l.strip() for l in text.split("\n")):
         for handle in _FACE_LINE_PARSERS:
             line = handle(st, line)

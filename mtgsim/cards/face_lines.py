@@ -1039,7 +1039,7 @@ def _face_cost_and_static_lines(st, line):
             alt_costs.append(AltCost(m[1].lower(), parse_mana_cost(m[2])))
             return None
         from ..cx_spell_costs import parse_line as _spell_add_cost      # "As an additional cost to cast ~, ..." (#342)
-        if _spell_add_cost(line, extra):
+        if _spell_add_cost(line, extra, getattr(st, "mana_cost", None)):
             return None
         return line
     finally:

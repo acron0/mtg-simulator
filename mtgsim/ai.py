@@ -28,6 +28,7 @@ MAX_ENUMERATE = 6       # try every attack set up to this many ready creatures
 TUCK_KINDS = ("tuck_perm", "tuck_top", "cx_tuck")
 SWEEP_OPS = ("destroy", "exile", "bounce", "damage")     # group_remove ops the AI values as a sweeper (#716, #723)
 REMOVAL_BAR = 4.5       # least a creature must be worth to spend instant removal on it
+NONCREATURE_REMOVAL_BAR = 2.0   # artifact / enchantment removal that can't hit a creature: a mana rock and up (#786)
 PW_KEEP = 2.0           # value of a planeswalker still being on the battlefield next turn
 SWEEP_BAR = 6.0         # least net value for a sweeper when we are not under pressure
 SETUP_FIGHT_BUDGET = 100_000    # fight simulations one lethal_setup search may spend
@@ -1331,7 +1332,12 @@ class HeuristicAI:
     def _etb_value(self, game: Game, me: Player, card: CardDef, precombat: bool) -> float:
         """Extra value of a permanent's enters-the-battlefield removal, tutor or explore."""
         # Mirrors Game.enter_battlefield: etb_effects only fire on a card without an etb trigger.
-        effects = [e for t in card.triggers if t.event == "etb" for e in t.effects] or list(card.etb_effects)
+        # "When ~ enters, if it was kicked, ...": only the kicked variant gets that trigger's value (#786)
+        kicked = game._origin(card)[1] == "kicker"
+        gated = lambda cond: "kicked" in (cond or "")
+        effects = [e for t in card.triggers if t.event == "etb" and (kicked or not gated(t.intervening_if))
+                   for e in t.effects if kicked or not gated(e.cond)] or \
+            [e for e in card.etb_effects if kicked or not gated(e.cond)]
         value = 0.0
         for eff in effects:
             if eff.kind == "oring" or eff.kind == "blink_link_exile" and eff.target != "none":
@@ -1340,6 +1346,9 @@ class HeuristicAI:
             elif eff.kind == "champion":    # sacrificed with nothing to champion; else gives up the championed one
                 from .champion import ai_value
                 value += ai_value(game, me, eff, card)
+            elif eff.kind == "selected_mass_move":     # "return all creatures except ..." (Slinn Voda, #786)
+                from .residual_templates import effect_value as residual_value
+                value += residual_value(game, me, eff, None) or 0.0
             elif eff.kind == "oring_all":   # symmetric: it exiles our own small permanents too
                 hit = lambda x: (x.is_creature or x.card.is_artifact) and x.card.cmc <= eff.amount
                 value += sum(perm_value(x) for x in game.opponent(me).battlefield if hit(x)) - \
@@ -1750,7 +1759,14 @@ class HeuristicAI:
                 targets = [None] * len(card.spell_effects)
             else:
                 plan = self._removal_on(game, me, card, opp.creatures, tempo=True)
-                if plan is None or plan[0] < REMOVAL_BAR:
+                if plan is None:
+                    # no creature it can hit (Mogg Salvage, "destroy target artifact"): their best noncreature,
+                    # nonland permanent, at a lower bar (perm_value rates those 1-3) (#786)
+                    others = [x for x in opp.battlefield if not x.is_creature and not x.card.is_land]
+                    plan = self._removal_on(game, me, card, others, tempo=True)
+                    if plan is None or plan[0] < NONCREATURE_REMOVAL_BAR:
+                        continue
+                elif plan[0] < REMOVAL_BAR:
                     continue
                 value, targets = plan
             if value > 0 and (best is None or value > best[0]):

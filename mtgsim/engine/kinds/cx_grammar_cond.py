@@ -107,6 +107,14 @@ def _pay(game, payer, cost, item, eff=None) -> bool:
         game.discard_card(payer, choice if choice in cards else cards[0])
         return True
     mana = cost["mana"]
+    if cost.get("per") is not None:         # "{1} for each card in your hand": counted now, from the source's side
+        from types import SimpleNamespace
+        owner = getattr(item, "controller", None) or payer
+        ctx = item if item is not None else SimpleNamespace(source=None, card=None, context=None)
+        n = game.x_quantity(owner, cost["per"], ctx, None)
+        mana = {k: v * n for k, v in mana.items()}
+        if not any(mana.values()):
+            return True                      # nothing to pay: paying {0} is paying
     if find_payment(game.mana_sources(payer, spell="ability"), mana) is None:
         return False
     game.pay(payer, mana)

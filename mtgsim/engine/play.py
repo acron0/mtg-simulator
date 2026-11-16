@@ -34,6 +34,9 @@ class PlayMixin:
                 break
         face = card.land_face if back else card
         assert face is not None and face.is_land and not p.land_played
+        from ..residual_templates import hand_locked
+        if card in p.hand and hand_locked(p):       # "You can't play lands ... from your hand" (#326)
+            return
         if card in p.hand:
             p.hand.remove(card)
         elif card in p.exile and card in self.impulse_cards(p):
@@ -307,6 +310,8 @@ class PlayMixin:
             if source is not None:
                 source.grave_cast_turn = self.turn
         item.snow_spent = sum(1 for s in payment if s.card.snow)
+        from ..cx_spent import source_counts
+        item.mana_from = source_counts(payment)          # "if mana from a Treasure was spent to cast it"
         item.x = x
         item.kicks = kicks
         item.teamwork = teamwork_paid

@@ -40,8 +40,8 @@ class Parsing(unittest.TestCase):
     def test_flavor_word_equip(self):
         self.assertEqual(KATANA.unsupported, [])
         self.assertEqual(KATANA.equip_cost, {"generic": 1})
-        c = card("X", "{1}", "Artifact — Equipment", "Chaosbringer — Equip—Pay 3 life. Activate only once each turn.")
-        self.assertTrue(c.unsupported)                          # a non-mana equip cost is still not read
+        c = card("X", "{1}", "Artifact — Equipment", "Chaosbringer — Equip—Pay {3} or discard a card.")
+        self.assertTrue(c.unsupported)                          # an "or" equip cost is still not read
 
     def test_cycling_specs(self):
         self.assertEqual(POUNCER.cycling, {"cost": {"generic": 2}, "land": "Swamp|Mountain"})
@@ -121,7 +121,7 @@ class RealCards(unittest.TestCase):
     def test_near_misses_stay_partial(self):
         from mtgsim.carddb import CardDB
         db = CardDB(offline=True)
-        for name in ("Noble Elephant", "Dark Knight's Greatsword", "Sojourner's Enforcermite"):
+        for name in ("Noble Elephant", "Bloodthorn Flail", "Sojourner's Enforcermite"):
             self.assertEqual(card_coverage(db.get(name)).status, "partial", name)
 
 

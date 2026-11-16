@@ -3,6 +3,7 @@
 - "Flying; fear", "Trample; rampage 2", "Vigilance; horsemanship": the pre-2005 semicolon form of a keyword list (one
   line, several keywords; CR 702.1 lists keywords the same way with commas). Each keyword becomes its own line, so a
   keyword the engine doesn't know ("banding") stays ignored on its own line while the rest are read.
+- "Equip—Pay 3 life.": a non-mana Equip cost, read as the activated ability CR 702.6a defines.
 - "Gae Bolg — Equip {4}": a flavor word (CR 207.2d: it has no rules meaning) in front of an Equip ability; the
   ability is read without it.
 """
@@ -10,12 +11,24 @@ import re
 
 _KW = r"[a-z]+(?:[ -][a-z]+)?(?: \d+| \{[^}]+\})?"         # "fear", "first strike", "rampage 2", "ward {2}"
 _SEMI = re.compile(rf"(?m)^([A-Z]{_KW}(?:; {_KW})+)(?: \([^()]*\))? *$")       # reminder text (or its leftover space) dropped
+_EQUIP_COST = re.compile(r"(?m)^Equip—([^.:]+)\.((?: Activate only once each turn\.)?) *$")
 _FLAVOR_EQUIP = re.compile(r"(?m)^[A-Z][\w'’]*(?: [A-Za-z][\w'’]*)* — (Equip(?: \{| ?—))")
 
 
 def split_lines(text: str) -> str:
     text = _SEMI.sub(lambda m: "\n".join(x[0].upper() + x[1:] for x in m[1].split("; ")), text)
-    return _FLAVOR_EQUIP.sub(r"\1", text)
+    text = _FLAVOR_EQUIP.sub(r"\1", text)
+    # CR 702.6a: "Equip [cost]" means "[Cost]: Attach this permanent to target creature you control. Activate only
+    # as a sorcery." A non-mana cost ("Equip—Pay 3 life.") is read as that activated ability, so its cost goes
+    # through the general ability-cost reader (an unread cost part keeps the line ignored).
+    return _EQUIP_COST.sub(_equip_ability, text)
+
+
+def _equip_ability(m):
+    from .cards.parse import _parse_ability_cost
+    if _parse_ability_cost(m[1]) is None:
+        return m[0]                 # "Equip—Pay {3} or discard a card.": kept as printed, and ignored
+    return f"{m[1]}: Attach ~ to target creature you control. Activate only as a sorcery.{m[2]}"
 
 
 _BASIC = ("Plains", "Island", "Swamp", "Mountain", "Forest")

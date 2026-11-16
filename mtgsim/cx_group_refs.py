@@ -183,8 +183,14 @@ def cond_rider(cond: str, body: str, effects: list) -> bool:
     tmp = list(effects)
     if not chain_rider(body[0].upper() + body[1:].rstrip(".") + ".", tmp):
         return False
+    if last.kind == "cx_multi":         # the rider joined the list target's chain: its new links carry C
+        multi, n = tmp[-1], len(last.data["chain"])
+        chain = list(multi.data["chain"][:n]) + [dataclasses.replace(e, cond=cond) for e in multi.data["chain"][n:]]
+        effects[-1] = dataclasses.replace(multi, data=dict(multi.data, chain=chain))
+        return True
     old = {id(e) for e in effects}
-    effects[:] = [e if id(e) in old else dataclasses.replace(e, cond=cond) for e in tmp]
+    # the rider's copies (on "it"); a split "tap up to two" entry's new tap copies stay unconditional
+    effects[:] = [e if id(e) in old or e.target != "prev" else dataclasses.replace(e, cond=cond) for e in tmp]
     return True
 
 

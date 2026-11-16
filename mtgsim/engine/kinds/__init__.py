@@ -55,3 +55,4 @@ from . import cx_static_cost  # noqa: E402,F401  (one-shot spell-group discounts
 from . import cx_static_chars  # noqa: E402,F401  ("loses all abilities", #406)
 from . import cx_static  # noqa: E402,F401  (sim-static's small kinds)
 from . import cx_trig_damage  # noqa: E402,F401  (damage triggers from any source, #521)
+from . import cx_bounce  # noqa: E402,F401  (bounce residue, #638)

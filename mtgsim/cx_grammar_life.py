@@ -76,3 +76,12 @@ def _value(game, me, eff, obj):
     delta = new_total(game, eff, obj) - obj.life
     gain = 0.5 * delta
     return gain if obj is me else -gain
+
+
+@verb(r"loses? the game", heads=("lose", "loses"), subjects=("player",))
+def loses_game(m, clause):
+    """"Target player loses the game", "that player loses the game": the named player loses (unless an effect says they
+    can't: cx_night_aura.cant_lose)."""
+    if clause.duration:
+        return None
+    return [Part("cx_lose_game", data={"side": "theirs"})]

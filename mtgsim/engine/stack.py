@@ -276,7 +276,9 @@ class StackMixin:
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
                                                 or e.data.get("ref_subject") for e in effects) else context
             for equipment in source.equipment:
-                for trig in equipment.card.host_triggers:
+                granted = [dataclasses.replace(t, event=t.event[5:]) for t in getattr(equipment, "temp_triggers", ())
+                           if t.event.startswith("host:")]        # "this Equipment gains '...'" (Vorpal Sword, #629)
+                for trig in list(equipment.card.host_triggers) + granted:
                     if trig.event == event:
                         self.queue_trigger(equipment.controller, self._that_much(trig.effects), source,
                                            equipment.card.name, ctx(trig.effects))

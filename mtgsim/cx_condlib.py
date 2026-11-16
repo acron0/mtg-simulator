@@ -298,6 +298,7 @@ _ALIASES = {
     "it's not your turn": "!your_turn",
     "it isn't your turn": "!your_turn",
     "you weren't the starting player": "lib:[\"not_starting\"]",
+    "you aren't the starting player": "lib:[\"not_starting\"]",
     "you were the starting player": "lib:[\"starting\"]",
     "it was kicked": "lib:[\"kicked\"]",
     "~ was kicked": "lib:[\"kicked\"]",

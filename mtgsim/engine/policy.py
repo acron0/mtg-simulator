@@ -637,7 +637,7 @@ def ability_worth(game: Game, me: Player, perm: Permanent, idx: int, reserve: in
     if act.cost.get("X") and x is None:
         return False
     need = add_costs({k: v for k, v in act.cost.items() if k != "X"},
-                     {"generic": (x or 0) + reserve})
+                     {"generic": (x or 0) * act.cost.get("X", 1) + reserve})
     if not payable(game.mana_sources(me, perm if c.get("tap") else None, "ability"), need):
         return False
     effects = act.effects

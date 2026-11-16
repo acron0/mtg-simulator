@@ -348,8 +348,7 @@ class AbilitiesMixin:
             if x is None:
                 return False
         if x is not None and cost.get("X"):
-            cost = {k: v for k, v in cost.items() if k != "X"}
-            cost["generic"] = cost.get("generic", 0) + x
+            cost = {k: v for k, v in cost.items() if k != "X"} | {"generic": cost.get("generic", 0) + x * cost["X"]}  # {X}{X}: 2X
         return costs.ability_plan(self, p, perm, act, cost,
                                   x=x if c.get("remove_creature_counters") or c.get("exile_gy_count") == "x" else None,
                                   counter_choices=counter_choices) is not None
@@ -373,7 +372,7 @@ class AbilitiesMixin:
         best = None
         for n in range(1, 21):
             cost = {k: v for k, v in base.items() if k != "X"}
-            cost["generic"] = cost.get("generic", 0) + n
+            cost["generic"] = cost.get("generic", 0) + n * base.get("X", 1)     # {X}{X} costs 2X (#531)
             if costs.ability_plan(self, p, perm, act, cost) is None:
                 break
             best = n
@@ -410,8 +409,7 @@ class AbilitiesMixin:
         if x is None and cost.get("X"):
             x = self.ability_x(p, perm, act)
         if x is not None and cost.get("X"):
-            cost = {k: v for k, v in cost.items() if k != "X"}
-            cost["generic"] = cost.get("generic", 0) + x
+            cost = {k: v for k, v in cost.items() if k != "X"} | {"generic": cost.get("generic", 0) + x * cost["X"]}  # {X}{X}: 2X
         plan = costs.ability_plan(self, p, perm, act, cost,
                                   x=x if c.get("remove_creature_counters") or c.get("exile_gy_count") == "x" else None,
                                   counter_choices=counter_choices)

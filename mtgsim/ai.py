@@ -783,8 +783,9 @@ class HeuristicAI:
         """An X spell with X fixed at the largest value the remaining mana pays for, else None."""
         x = 0
         cost = game.cost_of(me, card)
+        per_x = card.mana_cost.get("X", 1) or 1          # {X}{X}: two mana per X (#531)
         while x < 20 and engine.find_payment(game.mana_sources(me, spell=card), engine.add_costs(
-                cost, {"generic": x + 1})) is not None:
+                cost, {"generic": (x + 1) * per_x})) is not None:
             x += 1
         if x < 1:
             return None

@@ -211,7 +211,9 @@ class BattlefieldMixin:
         if card.etb_named_counters:
             n = x if card.etb_named_counters[1] == -1 else card.etb_named_counters[1]    # -1: "enters with X ..."
             if n:
-                perm.counters[card.etb_named_counters[0]] = n
+                from ..cx_counter_choice import pick     # "your choice of a flying counter or a ... counter" (#627)
+                for name in pick(perm, card.etb_named_counters[0]):
+                    perm.counters[name] = n
         roll = as_enters_roll(card, perm.entered_x)
         if roll is not None:
             sides, n, kind = roll

@@ -285,3 +285,5 @@ from .. import cx_dmg_equal as _cx_dmg_equal  # noqa: E402  damage equal to a qu
 _EFFECT_PATTERNS += _cx_dmg_equal.EFFECT_PATTERNS
 from .. import cx_owner_library as _cx_owner_library  # noqa: E402  "put it on top of its owner's library" (#628)
 _EFFECT_PATTERNS += _cx_owner_library.EFFECT_PATTERNS
+from .. import spell_grants as _spell_grants  # noqa: E402  "the next spell you cast this turn has cascade" (#633)
+_EFFECT_PATTERNS += _spell_grants.EFFECT_PATTERNS

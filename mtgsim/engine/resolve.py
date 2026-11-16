@@ -36,7 +36,7 @@ class ResolveMixin:
             ctx = item.context
             target = ctx.controller if isinstance(ctx, StackItem) else ctx   # any_cast: the cast spell's caster
             if not isinstance(target, Player):
-                target = that_player_of(prev)       # no event: the previous object's player (#609)
+                target = that_player_of(prev)       # no event: the previous object's player (#609; a bounced permanent: its owner)
         if eff.target == "trigger_subject" and item is not None:
             target = item.context if isinstance(item.context, Permanent) and item.context in item.context.controller.battlefield \
                 else None

@@ -145,6 +145,13 @@ class Quantities(Base):
         self.cast("Mill a card. If a noncreature card was milled this way, you gain 2 life.")
         self.assertEqual(self.a.life, 22)
 
+    def test_one_instruction_of_several_effects(self):
+        """"Destroy all artifacts and enchantments" is two engine effects; "this way" names both."""
+        for c in (ROCK, CHARM, ROCK):
+            self.game.enter_battlefield(self.b, c)
+        self.cast("Destroy all artifacts and enchantments. You gain 1 life for each permanent destroyed this way.")
+        self.assertEqual(self.a.life, 23)
+
     def test_nothing_before_counts_nothing(self):
         self.cast("You gain 1 life for each creature card milled this way.")
         self.assertEqual(self.a.life, 20)

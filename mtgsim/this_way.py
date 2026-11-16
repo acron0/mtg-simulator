@@ -8,8 +8,8 @@
 
 **The journal.** A listener on the rules-event bus (``zone_change``) records every card that moves while an effect
 resolves, on the resolving item: ``(card, from zone, to zone, owner, controller)``; ``Game.deal_damage`` adds what
-was dealt damage. ``start(game, item, eff)`` (called as ``Game.resolve`` begins an effect) starts a new journal for
-the effect, so:
+was dealt damage. ``start(game, item, eff)`` (called as ``Game.resolve`` begins an effect) keeps one journal for the
+effects since the last one that read it (one instruction can be several engine effects), so:
 
 * a condition on an effect ("If a creature card is exiled this way, ...") is checked before that effect resolves and
   reads ``item.tw_journal``: the previous effect's results;

@@ -254,6 +254,8 @@ def _parse_effects(text: str, opts: bool = False):
                 if one != "1":
                     body = re.sub(r"\b(creature |artifact )?tokens\b", r"\1token", body)
                 body = re.sub(rf"\b{one} (cards|life)\b", lambda m: f"{one} {m[1][:-1] if m[1] == 'cards' else m[1]}", body)
+                if one != "1":   # "return up to one permanent cards" -> "... permanent card" (Uncle's Musings)
+                    body = re.sub(rf"\b{one} ((?:[a-z]+ )?)cards\b", rf"{one} \1card", body)
                 new, bad = _parse_effects(body + ".")
                 if new and not bad:
                     break
@@ -405,7 +407,8 @@ def _split_compound(s: str):
             out += effs
         else:
             return out
-    return None
+    from ..cx_lists import split_list
+    return split_list(s)      # "A, B, and C", each with its own subject
 
 
 def _apply_speed_gate(gate, triggers, activated):

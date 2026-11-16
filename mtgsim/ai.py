@@ -1309,6 +1309,9 @@ class HeuristicAI:
             if eff.kind == "oring" or eff.kind == "blink_link_exile" and eff.target != "none":
                 tgt = self.choose_target(game, me, eff, card)
                 value += perm_value(tgt) if tgt is not None else 0.0
+            elif eff.kind == "champion":    # sacrificed with nothing to champion; else gives up the championed one
+                from .champion import ai_value
+                value += ai_value(game, me, eff, card)
             elif eff.kind == "oring_all":   # symmetric: it exiles our own small permanents too
                 hit = lambda x: (x.is_creature or x.card.is_artifact) and x.card.cmc <= eff.amount
                 value += sum(perm_value(x) for x in game.opponent(me).battlefield if hit(x)) - \

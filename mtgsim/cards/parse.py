@@ -309,7 +309,9 @@ def _parse_effects(text: str, opts: bool = False):
                         effects += [dataclasses.replace(e, cond=e.cond or cond) for e in new]
                         break
                 else:
-                    unmatched.append(sentence.strip())
+                    from ..cx_group_refs import cond_rider       # "If C, those creatures gain ..." (#628)
+                    if not cond_rider(cond, mi[2], effects):
+                        unmatched.append(sentence.strip())
                 continue
         first = len(effects)
         paid = reflexive = False

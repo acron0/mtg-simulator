@@ -88,6 +88,16 @@ class Conditions(Base):
                   "life and you gain 2 life.", [self.b.graveyard[0]])
         self.assertEqual((self.a.life, self.b.life), (22, 18))
 
+    def test_you_discarded_reads_only_your_cards(self):
+        """"Each player discards a card. If you discarded a card this way, draw a card." (Fanatic of the Harrowing)"""
+        self.b.hand = [ISLAND]
+        self.cast("Each player discards a card. If you discarded a card this way, draw a card.")
+        self.assertEqual(len(self.a.hand), 0)               # only the opponent discarded
+        self.a.hand = [BEAR]
+        self.b.hand = [ISLAND]
+        self.cast("Each player discards a card. If you discarded a card this way, draw a card.")
+        self.assertEqual(len(self.a.hand), 1)
+
     def test_dealt_damage_this_way(self):
         text = "~ deals 3 damage to target creature. If a Werewolf is dealt damage this way, you gain 5 life."
         giant = self.game.enter_battlefield(self.b, GIANT)

@@ -137,12 +137,15 @@ def parse_cond(phrase: str) -> str:
     """The condition code for "a creature card is exiled this way" / "an artifact is destroyed this way" /
     "you discarded a card this way" / "a Werewolf is dealt damage this way", or ""."""
     p = re.sub(r"\s+", " ", phrase.strip().rstrip(",."))
+    yours = False
     m = re.fullmatch(rf"(?:a|an|at least one|one or more) (?P<f>[\w' -]+?) (?:is|was|were|are) {_VERB_RX} this way", p,
                      re.I)
     if m is None:
         m = re.fullmatch(r"you (?P<v>exiled|milled|discarded) (?:a|an|one or more) (?P<f>[\w' -]+?) this way", p, re.I)
         if m:
             verb = m["v"].lower()
+            yours = verb in ("milled", "discarded")     # "you discarded a card": one of your cards (not another
+            # player's discard in "each player discards a card"); "you exiled": your own effect did it
         else:
             d = re.fullmatch(r"(?:a|an) (?P<f>[\w' -]+?) is dealt damage this way", p, re.I)
             if d is None:
@@ -157,13 +160,15 @@ def parse_cond(phrase: str) -> str:
     spec = _cond_filter(m["f"], verb)
     if spec is None:
         return ""
-    return "lib:" + json.dumps(["this_way", verb, spec])
+    return "lib:" + json.dumps(["this_way", verb, spec] + (["you"] if yours else []))
 
 
 def check(game, p, args, item, prev=None) -> bool:
     """cx_condlib.check for ["this_way", verb, spec]: something the previous effect did fits."""
-    verb, spec = args
+    verb, spec = args[:2]
     journal = getattr(item, "tw_journal", None) or []
+    if args[2:] == ["you"]:
+        journal = [e for e in journal if getattr(e.get("owner"), "name", None) == p.name]
     if verb == "damaged":
         from .cx_condlib import _card_ok
         from .engine.state import Permanent

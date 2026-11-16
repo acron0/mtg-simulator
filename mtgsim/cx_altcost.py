@@ -5,6 +5,7 @@
     You may sacrifice two Mountains rather than pay ~'s mana cost.                             (Fireblast)
     You may return two Islands you control to their owner's hand rather than pay ~'s mana cost. (Gush)
     If an opponent gained life this turn, you may pay {B} rather than pay ~'s mana cost.      (Needlebite Trap)
+    If an opponent controls a Swamp and you control a Plains, you may cast ~ without paying its mana cost.  (Legates)
 
 Each line becomes an ``AltCost("cond_alt_<i>")`` holding the mana part and the life; the condition and the other
 parts are ``advanced_rules["alt_if"][i] = (condition code, ((part, count, filter), ...))``, the parts being
@@ -60,10 +61,22 @@ def _parts(text: str):
     return mana, life, tuple(parts)
 
 
+# "If <condition>, you may cast ~ without paying its mana cost." (the Legates, Massacre): the same conditional
+# alternative cost, with nothing to pay (#625)
+_FREE = re.compile(r"If (?P<c>.+?), you may cast (?:~|this spell) without paying its mana cost\.", re.I)
+
+
 def parse_line(line: str, st) -> bool:
     m = _LINE.fullmatch(line)
     if not m:
-        return False
+        m = _FREE.fullmatch(line)
+        if not m:
+            return False
+        from .cx_condlib import parse
+        code = parse(m["c"])
+        if not code:
+            return False
+        return _add(st, code, None, 0, ())
     code = ""
     if m["c"]:
         from .cx_condlib import parse
@@ -76,6 +89,10 @@ def parse_line(line: str, st) -> bool:
     mana, life, parts = got
     if not code and not life and not parts:
         return False            # a plain "You may pay {X} rather than pay ~'s mana cost" (face_lines: AltCost "alt")
+    return _add(st, code, mana, life, parts)
+
+
+def _add(st, code, mana, life, parts) -> bool:
     from .cards.model import AltCost
     rules = st.extra.setdefault("advanced_rules", {})
     index = len(rules.get("alt_if", ()))

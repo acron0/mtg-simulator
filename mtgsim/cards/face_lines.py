@@ -499,9 +499,12 @@ def _face_land_and_mana_lines(st, line):
             extra["mana_amount"] = max(cond_mana[1], extra.get("mana_amount", 1))
             extra["mana_dyn"] = cond_mana[2]
             return None
-        m = re.fullmatch(r"\{T\}: Add ([^.]+)\.(?: ~ deals 1 damage to you\.)?", line)
+        m = re.fullmatch(r"\{T\}: Add ([^.]+)\.( ~ deals 1 damage to you\.)?", line)
         if m:
             cols, amount = _parse_mana_ability(m[1])
+            if m[2]:        # painlands: the damage is dealt when this ability's mana is used (#801)
+                extra["mana_damage"] = 1
+                extra["mana_damage_colors"] = frozenset(extra.get("mana_damage_colors", frozenset()) | set(cols))
             if not cols and "chosen color" not in m[1]:
                 # No colour in the wording: "N mana in any combination of colors" is exactly N mana of any colours;
                 # "N mana of any one color" / "of different colors" are played as that too (recorded below). Anything

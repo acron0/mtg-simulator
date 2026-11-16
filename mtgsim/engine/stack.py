@@ -561,7 +561,8 @@ class StackMixin:
                 finally:
                     self._mid_resolution -= 1
                 just_made = self._last_token if getattr(self, "_token_serial", 0) == serial + 1 else None
-                if eff.kind.endswith("_self") and eff.target in ("none", "self") and isinstance(item.source, Permanent):
+                if eff.kind.endswith("_self") and eff.target in ("none", "self") and isinstance(item.source, Permanent) \
+                        and not eff.data.get("keep_ctx"):      # "that creature" keeps the trigger's subject (self_ref)
                     prev = item.source      # "Untap ~ and put a +1/+1 counter on it": "it" is ~ (audit round 3)
                 if self.over:
                     break

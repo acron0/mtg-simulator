@@ -51,6 +51,14 @@ def _loses(m):
     return Effect("player_loses", target="player", filter="opp" if m[1].lower() == "opponent" else "")
 
 
+def _loses_ref(m):
+    """"That player / its controller / defending player loses the game": the player the trigger is about (Vorpal
+    Sword's granted "... that player loses the game")."""
+    from .cards.model import Effect
+    return Effect("player_loses", target={"that player": "that_player", "its controller": "that_controller",
+                                          "defending player": "that_player"}[m[1].lower()])
+
+
 EFFECT_PATTERNS = [
     (r"double (your|target player's|target opponent's|each player's|each opponent's|its controller's) life total",
      _double),
@@ -59,4 +67,5 @@ EFFECT_PATTERNS = [
     (r"(each player's) life total becomes (the (?:lowest|highest) life total among all players)", _become),
     (r"exchange life totals with target (player|opponent)", _exchange),
     (r"target (player|opponent) loses the game", _loses),
+    (r"(that player|its controller|defending player) loses the game", _loses_ref),
 ]

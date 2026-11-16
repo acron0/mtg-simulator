@@ -283,7 +283,10 @@ class StackMixin:
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
                                                 or e.data.get("ref_subject") for e in effects) else context
             for attached in list(source.equipment) + list(source.auras):
-                for trig in attached.card.host_triggers:
+                granted = [dataclasses.replace(t, event=t.event[5:]) for t in getattr(attached, "temp_triggers", ())
+                           if t.event.startswith("host:")] if attached in source.equipment else []
+                # granted: "this Equipment gains '...'" (Vorpal Sword, #629)
+                for trig in list(attached.card.host_triggers) + granted:
                     if trig.event != event:
                         continue
                     if trig.data.get("attachment_source"):      # "~" is the Equipment / Aura itself (#793)

@@ -28,10 +28,13 @@ import json
 import re
 
 _DESTROY_KINDS = ("destroy", "wrath")       # effect kinds whose battlefield-to-graveyard moves are destructions
+_SAC_KINDS = ("sac", "edict")               # ... and sacrifices ("sac_own", "edict_each", a player's "sacrifices")
 _VERBS = {"exiled": "exiled", "milled": "milled", "discarded": "discarded", "destroyed": "destroyed",
           "put into your graveyard": "gy_yours", "put into their graveyard": "gy", "put into a graveyard": "gy",
-          "put into graveyards": "gy", "put into that player's graveyard": "gy"}
-_VERB_RX = r"(exiled|milled|discarded|destroyed|put into (?:your|their|a|that player's) graveyards?|put into graveyards)"
+          "put into graveyards": "gy", "put into that player's graveyard": "gy", "sacrificed": "sacrificed",
+          "sacrifice": "sacrificed"}
+_VERB_RX = r"(exiled|milled|discarded|destroyed|sacrificed|put into (?:your|their|a|that player's) graveyards?|" \
+    r"put into graveyards)"
 
 
 # ----------------------------------------------------------------------------------------------- the journal
@@ -83,8 +86,16 @@ def start(game, item, eff):
     if getattr(item, "tw_journal", None) is None or getattr(item, "tw_read", False):
         item.tw_journal = []
         item.tw_read = False
-    item.tw_kind = eff.kind if eff.kind != "group_remove" else "destroy" if eff.data.get("op") == "destroy" else \
-        eff.kind
+    kinds = [eff.kind] + [e.kind for e in eff.data.get("effects", ()) if hasattr(e, "kind")] \
+        if isinstance(eff.data, dict) else [eff.kind]
+    if eff.kind == "group_remove":
+        kinds = ["destroy" if eff.data.get("op") == "destroy" else eff.kind]
+    item.tw_kind = "|".join(kinds)      # a wrapper (cx_players) names its inner kinds: "each player sacrifices"
+    if getattr(item, "cost_sacrificed", None) and not getattr(item, "tw_cost_done", False):
+        # the permanents sacrificed to pay for an activated ability: "If a Saproling was sacrificed this way"
+        item.tw_cost_done = True
+        item.tw_journal += [{"card": c, "from": "battlefield", "to": "graveyard", "owner": getattr(c, "owner", None),
+                             "controller": None, "kind": "sac_cost"} for c in item.cost_sacrificed]
 
 
 def note_damage(game, target, amount):
@@ -101,11 +112,15 @@ def _entries(journal, verb, owner_name=None):
         if "damaged" in e:
             continue
         frm, to = e["from"], e["to"]
+        kinds = e["kind"].split("|")
         ok = {"exiled": to == "exile", "milled": frm == "library" and to == "graveyard",
               "discarded": frm == "hand" and to == "graveyard", "gy": to == "graveyard",
-              "gy_yours": to == "graveyard",
-              "destroyed": frm == "battlefield" and to == "graveyard" and e["kind"].startswith(_DESTROY_KINDS)}[verb]
-        if ok and (verb != "gy_yours" or getattr(e["owner"], "name", None) == owner_name):
+              "gy_yours": to == "graveyard", "hand": to == "hand",
+              "destroyed": frm == "battlefield" and to == "graveyard" and any(k.startswith(_DESTROY_KINDS)
+                                                                              for k in kinds),
+              "sacrificed": frm == "battlefield" and to == "graveyard" and any(k.startswith(_SAC_KINDS) or
+                                                                               "_sac" in k for k in kinds)}[verb]
+        if ok and (verb not in ("gy_yours",) or getattr(e["owner"], "name", None) == owner_name):
             out.append(e)
     return out
 
@@ -133,7 +148,7 @@ def _cond_filter(words: str, verb: str):
     words = re.sub(r" card$", "", words)
     if words in ("card", ""):
         return {}
-    if verb != "destroyed" and words in ("permanent",):
+    if verb not in ("destroyed", "sacrificed") and words in ("permanent",):
         return None
     return _filter(words, plural=False)
 
@@ -145,12 +160,21 @@ def parse_cond(phrase: str) -> str:
     yours = False
     m = re.fullmatch(rf"(?:a|an|at least one|one or more) (?P<f>[\w' -]+?) (?:is|was|were|are) {_VERB_RX} this way", p,
                      re.I)
+    hand = re.fullmatch(r"you (?P<neg>didn't )?put (?:a|an|one or more) (?P<f>[\w' -]+?) into your hand this way", p,
+                        re.I)
+    if hand:        # "If you put an artifact card into your hand this way" / "If you didn't put a card into ..."
+        spec = _cond_filter(hand["f"], "hand")
+        if spec is None or (hand["neg"] and spec):
+            return ""
+        code = "lib:" + json.dumps(["this_way", "hand", spec, "you"])
+        return "lib:" + json.dumps(["not", code]) if hand["neg"] else code
     if m is None:
-        m = re.fullmatch(r"you (?P<v>exiled|milled|discarded) (?:a|an|one or more) (?P<f>[\w' -]+?) this way", p, re.I)
+        m = re.fullmatch(r"you (?P<v>exiled|milled|discarded|sacrificed|sacrifice) (?:a|an|one or more) "
+                         r"(?P<f>[\w' -]+?) this way", p, re.I)
         if m:
             verb = m["v"].lower()
-            yours = verb in ("milled", "discarded")     # "you discarded a card": one of your cards (not another
-            # player's discard in "each player discards a card"); "you exiled": your own effect did it
+            yours = verb in ("milled", "discarded", "sacrificed", "sacrifice")  # "you discarded a card": one of your
+            # cards (not another player's in "each player discards a card"); "you exiled": your own effect did it
         else:
             d = re.fullmatch(r"(?:a|an) (?P<f>[\w' -]+?) is dealt damage this way", p, re.I)
             if d is None:

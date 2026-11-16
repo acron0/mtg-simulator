@@ -52,12 +52,17 @@ class Parse(unittest.TestCase):
 
     def test_refusals(self):
         for s in ("If a creature card is revealed this way, draw a card.",              # "revealed": not journaled
-                  "If you sacrificed a creature this way, draw a card.",                # a cost: not journaled
+                  "If you didn't put a creature card into your hand this way, draw a card.",
                   "If a Foo card is exiled this way, draw a card.",
                   "You gain 1 life for each card returned this way.",
                   "You gain 1 life for each creature you controlled that was destroyed this way."):
             with self.subTest(s=s):
                 self.assertTrue(_parse_effects(s)[1], s)
+
+    def test_outlaw_filter(self):       # "outlaw" is a selector word since #601
+        effects, bad = _parse_effects("If an outlaw was sacrificed this way, draw a card.")
+        self.assertEqual(bad, [])
+        self.assertIn("Rogue", effects[0].cond)
 
 
 class Conditions(Base):
@@ -199,3 +204,46 @@ class RealCardGames(Base):
             self.game.enter_battlefield(self.b, BEAR)
         self.resolve_card(self.db("Fumigate"), [])
         self.assertEqual((self.a.life, len(self.b.creatures)), (22, 0))
+
+
+class HandAndSacrifice(Base):
+    """Slice 2: "you (didn't) put a card into your hand this way", "sacrificed this way" (effects and costs)."""
+    SAPROLING = card("Test Saproling", "{G}", "Creature — Saproling", "", 1, 1)
+
+    def test_didnt_put_a_card_into_your_hand(self):
+        text = ("Look at the top three cards of your library. You may reveal a creature card from among them and put "
+                "it into your hand. Put the rest on the bottom of your library in a random order. If you didn't put a "
+                "card into your hand this way, you gain 4 life.")
+        self.a.library = [ISLAND] * 10
+        self.cast(text)
+        self.assertEqual((self.a.life, len(self.a.hand)), (24, 0))
+        self.a.library = [ISLAND] * 7 + [BEAR, ISLAND, ISLAND]
+        self.cast(text)
+        self.assertEqual((self.a.life, len(self.a.hand)), (24, 1))
+
+    def test_you_sacrificed_a_creature_this_way(self):
+        text = "Each player sacrifices a creature of their choice. If you sacrificed a creature this way, draw two cards."
+        self.game.enter_battlefield(self.b, BEAR)
+        self.cast(text)
+        self.assertEqual(len(self.a.hand), 0)           # only the opponent had one
+        self.game.enter_battlefield(self.a, BEAR)
+        self.cast(text)
+        self.assertEqual(len(self.a.hand), 2)
+
+    def test_cost_sacrifice_of_a_saproling(self):
+        omnivore = self.game.enter_battlefield(self.a, card(
+            "Test Omnivore", "{2}{B}", "Creature — Fungus", "{1}, Sacrifice another creature: ~ gets +2/+2 until end "
+            "of turn. If a Saproling was sacrificed this way, you gain 2 life.", 1, 1))
+        for _ in range(2):
+            self.game.enter_battlefield(self.a, card("Swamp", types="Basic Land — Swamp", text="({T}: Add {B}.)"))
+        bear = self.game.enter_battlefield(self.a, BEAR)
+        self.game.enter_battlefield(self.a, self.SAPROLING)
+        self.a.ai = HeuristicAI()
+        self.assertTrue(self.game.activate_ability(self.a, omnivore, 0))
+        self.game.settle()
+        sacrificed_bear = bear not in self.a.battlefield
+        self.assertEqual(self.a.life, 20 if sacrificed_bear else 22)
+        life = self.a.life
+        self.assertTrue(self.game.activate_ability(self.a, omnivore, 0))
+        self.game.settle()
+        self.assertEqual(self.a.life, life + (2 if sacrificed_bear else 0))      # the other one now

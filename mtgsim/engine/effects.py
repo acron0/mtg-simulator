@@ -389,6 +389,8 @@ class EffectsMixin:
         if item is not None and item.controller is not p and any(rules(x).get("sac_protection") for x in p.battlefield):
             return False
         p.sacrificed_turn += 1
+        if item is not None:            # "you gain life equal to that creature's toughness" after an edict (#778)
+            item.sacrificed_permanent = perm
         for other in list(p.battlefield):
             for trig in other.triggers:
                 if trig.event == "sacrifice" and (card_matches(perm.card, trig.filter) if not trig.filter.startswith("another ") else

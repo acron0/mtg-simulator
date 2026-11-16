@@ -281,7 +281,7 @@ def selector(text, *, plural=False):
                 types.append(low)
             elif low in ('tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
                          'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored',
-                         'suspected', 'snow', 'nonsnow') or low.startswith('non') and low[3:] in _TYPES:
+                         'suspected', 'snow', 'nonsnow', 'face-up') or low.startswith('non') and low[3:] in _TYPES:
                 result.setdefault('traits', []).append(low)
             elif low in _COLORS:
                 result.setdefault('colors', []).append(_COLORS[low])
@@ -387,6 +387,8 @@ def matches(game, permanent, spec, controller, source=None):
             return False
         if trait in ('token', 'nontoken') and permanent.card.is_token != (trait == 'token'):
             return False
+        if trait == 'face-up' and getattr(permanent, 'hidden', None) is not None:
+            return False        # face down: manifested / morphed / disguised (Permanent.hidden) (#540)
         if trait.startswith('non') and trait[3:] in _TYPES and has_type(trait[3:]):
             return False
         if trait == 'colorless' and permanent.card.colors or trait == 'multicolored' and len(permanent.card.colors) < 2 or trait == 'monocolored' and len(permanent.card.colors) != 1:

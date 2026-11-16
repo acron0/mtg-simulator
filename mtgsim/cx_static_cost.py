@@ -394,6 +394,7 @@ def adjust(game, p, card, cost: dict, increase: int = 0, reduction: int = 0) -> 
         mods = list(_applying(game, p, card))
     cost = dict(cost)
     cost["generic"] = cost.get("generic", 0) + increase
+    unused = 0          # generic reduction beyond the generic part: it lowers the {X} part instead (601.2f, #512)
     for sign, amount, _only, n in mods:
         if sign > 0:
             for key, k in amount.items():
@@ -410,8 +411,11 @@ def adjust(game, p, card, cost: dict, increase: int = 0, reduction: int = 0) -> 
                     if not cost[key]:
                         del cost[key]
                 k = 0 if only else k - took
+            unused += max(0, k - cost.get("generic", 0))
             cost["generic"] = max(0, cost.get("generic", 0) - k)
+    unused += max(0, reduction - cost["generic"])
     cost["generic"] = max(0, cost["generic"] - reduction)
+    game.x_reduction = unused if "X" in card.mana_cost else 0      # read by Game.cast's X loop
     return cost
 
 

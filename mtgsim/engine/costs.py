@@ -938,7 +938,8 @@ class CostsMixin:
                         x.card.advanced_rules.get("sorcery_flash") and not x.abilities_suppressed
                         for x in p.battlefield))):
                 from ..cx_flash_perm import flash_allowed
-                if not flash_allowed(self, p, card):
+                from ..cx_conditions import spell_has
+                if not flash_allowed(self, p, card) and not (card.cond_keywords and spell_has(p, card, "flash")):
                     return False
         if any(e.target == "spell" and not e.data.get("optional_target") and not self.legal_targets(p, e)
                for e in card.spell_effects):

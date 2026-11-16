@@ -811,7 +811,9 @@ class CostsMixin:
         from ..advanced_templates import permission_options
         from .. import cx_top      # "You may cast creature spells from the top of your library."
         from .. import exile_permissions
-        return out + permission_options(self, p) + cx_top.options(self, p) + exile_permissions.options(self, p)
+        from ..cx_altcost import zone_options     # "You may cast this card from your graveyard / from exile" (#625)
+        return out + permission_options(self, p) + cx_top.options(self, p) + exile_permissions.options(self, p) + \
+            zone_options(self, p)
 
     def impulse_cards(self, p: Player) -> list:
         """Exiled cards p may still play (drops the expired ones)."""
@@ -828,6 +830,8 @@ class CostsMixin:
             return getattr(self, "foreign_zones", {}).get((id(p), kind), p.exile)
         if kind.startswith("exile_cast_"):
             return p.exile
+        if kind.startswith(("gy_alt_", "ex_alt_")):      # "You may cast this card from your graveyard / exile"
+            return p.graveyard if kind.startswith("gy") else p.exile
         return {"grave_permission": p.graveyard, "aftermath": p.graveyard, "from_adventure": p.on_adventure, "foretold": p.foretold, "flashback": p.graveyard,
                 "blitz_gy": p.graveyard, "gy_ability": p.graveyard, "plotted": p.plotted, "from_warp": p.warp_exile, "airbent": p.airbent,
                 "mayhem": p.graveyard, "madness": p.exile, "unearth": p.graveyard, "disturb": p.graveyard, "jump_start": p.graveyard,

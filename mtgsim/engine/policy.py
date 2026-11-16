@@ -269,6 +269,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return next((x for x in legal if x is (me if side == "mine" else opp)), None)
     if side in ("mine", "theirs"):      # newer kinds say whose permanent they want
         return max(mine if side == "mine" else theirs, key=perm_value, default=None)
+    if eff.target == "player" and eff.filter == "opp":
+        return opp if opp in legal else None    # "target opponent" is mandatory: the only choice (Wumpus Aberration)
     return None
 
 
@@ -409,6 +411,9 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                 if v <= 0 and all(x.kind in ("pay_gate", "hand_to_battlefield") for x in effects):
                     return -1          # nothing in hand it could put: don't spend the activation on it alone
                 total += v
+            elif k == "hand_free_cast":       # nothing in hand to cast: not worth an activation (#625)
+                from ..free_cast import value as free_value
+                total += free_value(me, e) or -1
             else:
                 total += 1
         return total
@@ -637,7 +642,7 @@ def ability_worth(game: Game, me: Player, perm: Permanent, idx: int, reserve: in
     if act.cost.get("X") and x is None:
         return False
     need = add_costs({k: v for k, v in act.cost.items() if k != "X"},
-                     {"generic": (x or 0) + reserve})
+                     {"generic": (x or 0) * act.cost.get("X", 1) + reserve})
     if not payable(game.mana_sources(me, perm if c.get("tap") else None, "ability"), need):
         return False
     effects = act.effects

@@ -59,7 +59,7 @@ class ResolveMixin:
             eff = dataclasses.replace(eff, amount=tw[2])
         if item is not None and not (isinstance(eff.data.get("xq"), tuple) and eff.data["xq"]
                                      and eff.data["xq"][0] == "this_way"):
-            item.this_way = None    # a new effect starts: "this way" no longer names the previous one's result
+            item.this_way_prior, item.this_way = getattr(item, "this_way", None), None   # a new effect starts (note_this_way may chain)
         source = (item.card.name if item and item.card else
                   item.source.card.name if item and isinstance(item.source, Permanent) else "effect")
         cause = f"{source}: {k}"

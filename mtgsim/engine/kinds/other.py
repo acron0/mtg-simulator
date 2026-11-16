@@ -177,6 +177,16 @@ def pay_gate(game, p, eff, item, **_):
         item.gate_paid = False
         if "gate" in eff.data:
             item.gate_paid = game.pay_gate_cost(p, eff.data["gate"], item)
+        elif eff.data.get("x"):     # "you may pay {X}": the largest X the player can afford, if that is worth paying
+            fixed = eff.data["cost"]
+            x = 0
+            while game.can_pay(p, dict(fixed, generic=fixed.get("generic", 0) + x + 1)):
+                x += 1
+            total = dict(fixed, generic=fixed.get("generic", 0) + x)
+            if x > 0 and game.hook(p, "pay_optional")(game, p, total, "gate"):
+                game.pay(p, total)
+                item.gate_paid = True
+                item.paid_x = item.x = x
         elif game.can_pay(p, eff.data["cost"]) and game.hook(p, "pay_optional")(game, p, eff.data["cost"], "gate"):
             game.pay(p, eff.data["cost"])
             item.gate_paid = True

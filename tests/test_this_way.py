@@ -142,3 +142,43 @@ class Quantities(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(DB_FILE.exists(), "card database not built")
+class RealCardGames(Base):
+    def db(self, name):
+        from mtgsim.carddb import CardDB
+        return CardDB().get(name)
+
+    def resolve_card(self, c, targets):
+        effs = list(c.spell_effects)
+        self.game.stack.append(StackItem(self.a, effs, targets + [None] * (len(effs) - len(targets)), card=c,
+                                         name=c.name))
+        self.game.resolve_top()
+
+    def test_sirens_ruse_draws_only_for_a_pirate(self):
+        pirate = self.game.enter_battlefield(self.a, card("Test Pirate", "{1}{U}", "Creature — Human Pirate", "", 2, 1))
+        bear = self.game.enter_battlefield(self.a, BEAR)
+        ruse = self.db("Siren's Ruse")
+        self.resolve_card(ruse, [bear])
+        self.assertEqual(len(self.a.hand), 0)
+        self.resolve_card(ruse, [pirate])
+        self.assertEqual(len(self.a.hand), 1)
+
+    def test_malfegor_edicts_once_per_discarded_card(self):
+        for _ in range(3):
+            self.game.enter_battlefield(self.b, BEAR)
+        self.a.hand = [ISLAND, ISLAND]
+        malfegor = self.db("Malfegor")
+        trig = next(t for t in malfegor.triggers if t.event == "etb")
+        src = self.game.enter_battlefield(self.a, BEAR)
+        self.game.stack.append(StackItem(self.a, list(trig.effects), [None] * len(trig.effects), source=src,
+                                         name="Malfegor"))
+        self.game.resolve_top()
+        self.assertEqual((len(self.a.hand), len(self.b.creatures)), (0, 1))
+
+    def test_fumigate(self):
+        for _ in range(2):
+            self.game.enter_battlefield(self.b, BEAR)
+        self.resolve_card(self.db("Fumigate"), [])
+        self.assertEqual((self.a.life, len(self.b.creatures)), (22, 0))

@@ -35,6 +35,8 @@ _PLURAL_SUB = {"elves": "Elf", "dwarves": "Dwarf", "wolves": "Wolf", "plains": "
                "deserts": "Desert", "gates": "Gate"}
 
 
+_OUTLAWS = ["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"]     # rule 700.12
+
 def _n(word: str) -> int:
     word = word.lower()
     return int(word) if word.isdigit() else _WORDS[word]
@@ -109,6 +111,10 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
         spec[low] = True
     elif low in ("multicolored", "colorless", "monocolored"):
         spec["colorcount"] = low
+    elif low in ("outlaw", "outlaws"):          # rule 700.12
+        spec.setdefault("any_sub", []).extend(_OUTLAWS)
+    elif low == "non-outlaw":
+        spec.setdefault("not_any_sub", []).extend(_OUTLAWS)
     elif low.startswith("non") and low[3:] in _COLORS:
         spec.setdefault("not_colors", []).append(_COLORS[low[3:]])
     elif low in _COLORS:
@@ -222,6 +228,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     if any(s not in subs for s in spec.get("sub", ())):
         return False
     if spec.get("any_sub") and not (set(spec["any_sub"]) & subs or card.changeling):
+        return False
+    if spec.get("not_any_sub") and (set(spec["not_any_sub"]) & subs or card.changeling):
         return False
     if spec.get("colors") and not all(c in card.colors for c in spec["colors"]):
         return False

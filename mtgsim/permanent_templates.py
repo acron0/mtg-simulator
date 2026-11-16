@@ -181,6 +181,8 @@ _SUBTYPE_TYPES.update({'ajani': ['planeswalker'],
  'zariel': ['planeswalker']})
 
 
+_OUTLAWS = ['assassin', 'mercenary', 'pirate', 'rogue', 'warlock']     # rule 700.12
+
 def keywords(text):
     from .cards.model import KEYWORDS
     parts = re.split(r',? and |, ', text.lower().strip())
@@ -294,13 +296,17 @@ def selector(text, *, plural=False):
                 result.setdefault('traits', []).append(low)
             elif low in _COLORS:
                 result.setdefault('colors', []).append(_COLORS[low])
+            elif low in ('outlaw', 'outlaws'):      # rule 700.12: Assassins, Mercenaries, Pirates, Rogues, Warlocks
+                result.setdefault('any_subtypes', []).extend(_OUTLAWS)
+            elif low == 'non-outlaw':
+                result.setdefault('not_subtypes', []).extend(_OUTLAWS)
             elif low.startswith('non-') and low[4:] in _SUBTYPE_TYPES:
                 result.setdefault('not_subtypes', []).append(word[4:].lower())
             elif low in _SUBTYPE_TYPES:
                 result.setdefault('subtypes', []).append(low)
             else:
                 return None
-        if not types and not result.get('subtypes'):
+        if not types and not result.get('subtypes') and not result.get('any_subtypes'):
             return None
         if types:
             result['types_all'] = types
@@ -382,6 +388,8 @@ def matches(game, permanent, spec, controller, source=None):
     if not all(s in subs or changeling and s in _CREATURE_SUBTYPES for s in spec.get('subtypes', [])):
         return False
     if any(s in subs or changeling and s in _CREATURE_SUBTYPES for s in spec.get('not_subtypes', [])):
+        return False
+    if spec.get('any_subtypes') and not (subs & set(spec['any_subtypes']) or changeling):
         return False
     if not all(c in permanent.card.colors for c in spec.get('colors', [])):
         return False

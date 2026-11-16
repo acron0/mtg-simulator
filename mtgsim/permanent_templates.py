@@ -241,42 +241,50 @@ def _words_spec(words):
     return spec
 
 
-def _union_spec(alts):
-    """A type union whose alternatives carry modifiers (#506).
+def _is_noun(word):
+    return _classify(word)[0] in ('type', 'subtypes', 'any_subtypes')
 
-    When every alternative is prefix modifiers + one type word, and the modifiers are written once on the
-    first alternative (or repeated identically), they distribute over the union: "nontoken artifact or
-    creature" = nontoken (artifact or creature). Otherwise each alternative is read exactly as written, as
-    an "alts" list of word tuples, words ANDed within an alternative and ORed across them: "artifact or
-    nontoken creature" = artifact, or nontoken creature. A bare creature subtype before an alternative headed
-    by "creature" takes that head ("Goblin or Elf creature" = Goblin creature or Elf creature)."""
-    parsed = []
-    for alt in alts:
-        words = alt.split()
-        if not words or _words_spec(words) is None:
-            return None
-        parsed.append(words)
-    shared, types = None, []
-    for words in parsed:
-        mods = words[:-1]
-        if words[-1] not in _TYPES or any(_classify(w)[0] in ('type', 'subtypes') for w in mods) or \
-                shared is not None and mods and mods != shared:
+
+def _union_spec(alts):
+    """A type / subtype union whose alternatives carry modifiers (#506), or None when an alternative is unread.
+
+    Adjectives written before the first alternative's noun distribute over the bare one-word alternatives after
+    it: "nontoken artifact or creature" = nontoken (artifact or creature), "attacking Wolf or Werewolf",
+    "tapped creature or Vehicle". A bare subtype takes the type the last alternative ends in when it is a subtype of
+    it: "Elf or Soldier creature" = Elf creature or Soldier creature. When every alternative is then the same
+    adjectives plus one type (or one subtype of the same type), the union reads flat (types_any / subtypes_any).
+    Anything else is read exactly as written, as an "alts" list of word tuples, words ANDed within an alternative
+    and ORed across them: "artifact or nontoken creature" = artifact, or nontoken creature."""
+    parsed = [alt.split() for alt in alts]
+    if any(not words or _words_spec(words) is None for words in parsed):
+        return None
+    run = []
+    for word in parsed[0]:
+        if _is_noun(word):
             break
-        if shared is None:
-            shared = mods
-        types.append(words[-1])
-    else:
-        spec = _words_spec(shared + ['permanent'])
-        del spec['types_all']
-        spec['types_any'] = types
-        return spec
-    head = parsed[-1][-1]
-    out = []
-    for words in parsed:
-        if head in _TYPES and len(words) == 1 and _SUBTYPE_TYPES.get(words[0]) == [head]:
-            words = words + [head]
-        out.append(tuple(words))
-    return {'alts': out}
+        run.append(word)
+    if run:
+        parsed = parsed[:1] + [run + words if len(words) == 1 else words for words in parsed[1:]]
+    last = parsed[-1]
+    head = last[-1] if len(last) > 1 and last[-1] in _TYPES and _classify(last[-2])[0] == 'subtypes' else None
+    if head:
+        parsed = [words + [head] if _classify(words[-1])[0] == 'subtypes' and head in _SUBTYPE_TYPES[words[-1]]
+                  else words for words in parsed]
+    n = len(run)
+    if all(words[:n] == run for words in parsed):
+        nouns = [words[n:] for words in parsed]
+        flat = None
+        if all(len(noun) == 1 and noun[0] in _TYPES for noun in nouns):
+            flat = {'types_any': [noun[0] for noun in nouns]}
+        elif all(noun[1:] == ([head] if head else []) and _classify(noun[0])[0] == 'subtypes' for noun in nouns):
+            flat = {'subtypes_any': [noun[0] for noun in nouns], 'types_all' if head else 'types_any': [head or 'permanent']}
+        if flat is not None:
+            spec = _words_spec(run + ['permanent'])
+            del spec['types_all']
+            spec.update(flat)
+            return spec
+    return {'alts': [tuple(words) for words in parsed]}
+
 
 
 def keywords(text):

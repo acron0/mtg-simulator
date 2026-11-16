@@ -108,8 +108,9 @@ class PermanentTemplates(unittest.TestCase):
                 self.assertIsNone(selector(text))
 
     def test_intersection_inside_a_union_alternative(self):
+        # the leading adjective distributes to the bare alternative after it
         self.assertEqual(selector('nontoken artifact creature or vehicle'),
-                         {'alts': [('nontoken', 'artifact', 'creature'), ('vehicle',)]})
+                         {'alts': [('nontoken', 'artifact', 'creature'), ('nontoken', 'vehicle')]})
         self.assertEqual(selector('artifact creature or vehicle'),
                          {'alts': [('artifact', 'creature'), ('vehicle',)]})
         self.assertEqual(selector('artifact or Vehicle'),
@@ -125,7 +126,9 @@ class PermanentTemplates(unittest.TestCase):
         legal = self.g.legal_targets(self.a, eff)
         self.assertIn(golem, legal)                # nontoken artifact creature
         self.assertIn(car, legal)                  # Vehicle
+        token_car = self.put(dataclasses.replace(card('Car', '{2}', 'Artifact — Vehicle', ''), is_token=True))
         self.assertNotIn(token_golem, legal)       # a token is not a nontoken artifact creature
+        self.assertNotIn(token_car, self.g.legal_targets(self.a, eff))   # nor a nontoken Vehicle
         self.assertNotIn(artifact, legal)          # a plain artifact is neither alternative
         self.assertNotIn(bear, legal)
 

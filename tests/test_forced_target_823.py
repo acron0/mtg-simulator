@@ -31,6 +31,16 @@ class ForcedTarget(unittest.TestCase):
         self.assertEqual((wurm.counters.get("-1/-1", 0) + beetle.counters.get("-1/-1", 0)), 1)
         self.assertFalse(any("fizzles" in e for e in self.game.events))
 
+    def test_drawback_on_our_own_goes_to_the_least_valuable(self):
+        """Only our own creatures are legal: the -1/-1 lands on the Bear, not the Wurm (same rule as #780)."""
+        from tests.test_templates import BEAR
+        wurm = self.game.enter_battlefield(self.a, db("Craw Wurm"))
+        bear = self.game.enter_battlefield(self.a, BEAR)
+        self.game.enter_battlefield(self.a, db("Decimator Beetle"))
+        self.game.settle()
+        self.assertEqual(wurm.counters.get("-1/-1", 0), 0)
+        self.assertTrue(bear.counters.get("-1/-1", 0) == 1 or bear not in self.a.battlefield)
+
     def test_shivan_sand_mage_mode_finds_its_target(self):
         clock = self.game.enter_battlefield(self.a, card("T Clock", "{1}", "Artifact", ""))
         clock.counters["time"] = 3

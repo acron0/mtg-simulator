@@ -13,6 +13,13 @@ from .state import Permanent, Player, StackItem, TARGETED, TrackedZone, _gy_desc
 from .policy import perm_value
 
 
+def _shrink(e) -> int:
+    """How much toughness a forced harmful effect takes away (0 when it doesn't shrink or deal damage)."""
+    if e.kind in ("debuff_one", "damage") or e.kind == "add_counter" and e.data.get("counter") == "-1/-1":
+        return e.amount if isinstance(e.amount, int) else 0
+    return 0
+
+
 class StackMixin:
     def settle(self):
         """Outside a priority loop: let players respond to whatever was just put on the
@@ -344,9 +351,15 @@ class StackMixin:
                 continue
             with self.targeting(source):
                 legal = [x for x in self.legal_targets(controller, e) if isinstance(x, Permanent)]
-            enemies = [x for x in legal if x.controller is not controller] or legal
+            # Same rule as the blink chooser (#774/#780): the opponent's best, else our least valuable one, preferring
+            # one the effect doesn't kill (a 5/5 shrinks for the turn rather than a 2/2 dying).
+            enemies = [x for x in legal if x.controller is not controller]
             if enemies:
                 targets[i] = max(enemies, key=perm_value)
+            elif legal:
+                n = _shrink(e)
+                safe = [x for x in legal if not n or x.toughness - getattr(x, "damage", 0) > n]
+                targets[i] = min(safe or legal, key=perm_value)
         return targets
 
     @staticmethod

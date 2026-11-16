@@ -275,16 +275,16 @@ class StackMixin:
             # "its controller" in "Whenever enchanted creature ..., its controller ..." is the creature's (#361)
             ctx = lambda effects: source if any(e.target == "that_controller" or e.data.get("who") == "that_controller"
                                                 or e.data.get("ref_subject") for e in effects) else context
-            for equipment in source.equipment:
-                for trig in equipment.card.host_triggers:
-                    if trig.event == event:
-                        self.queue_trigger(equipment.controller, self._that_much(trig.effects), source,
-                                           equipment.card.name, ctx(trig.effects))
-            for aura in list(source.auras):
-                for trig in aura.card.host_triggers:
-                    if trig.event == event:
-                        self.queue_trigger(aura.controller, self._that_much(trig.effects), source, aura.card.name,
-                                           ctx(trig.effects))
+            for attached in list(source.equipment) + list(source.auras):
+                for trig in attached.card.host_triggers:
+                    if trig.event != event:
+                        continue
+                    if trig.data.get("attachment_source"):      # "~" is the Equipment / Aura itself (#793)
+                        self.queue_trigger(attached.controller, self._that_much(trig.effects), attached,
+                                           attached.card.name, source)
+                    else:
+                        self.queue_trigger(attached.controller, self._that_much(trig.effects), source,
+                                           attached.card.name, ctx(trig.effects))
         if source is None and p.suspended:     # "if this card is suspended" abilities (Deep-Sea Kraken)
             from ..time_counters import suspended_triggers
             suspended_triggers(self, p, event, context)

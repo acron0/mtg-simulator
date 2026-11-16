@@ -4,7 +4,6 @@ import random
 import unittest
 
 from mtgsim.ai import HeuristicAI
-from mtgsim.cards.parse import _parse_effects
 from mtgsim.engine import Game, Player
 from tests.test_templates import ISLAND, MOUNTAIN, card
 

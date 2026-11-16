@@ -1253,6 +1253,9 @@ def _face_ability_lines(st, line):
                 approximations += head[1]
                 mode_sink = modes
                 return None
+            from ..cx_group_refs import spell_line_rider     # "Spell mastery — If C, those creatures ..." (#628)
+            if spell_line_rider(line, spell):
+                return None
             effs, bad = _parse_effects(line, opts=bool(extra.get("bargain") or extra.get("gift")))
             spell += effs
             unsupported += bad

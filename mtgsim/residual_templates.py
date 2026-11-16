@@ -365,6 +365,10 @@ def effect_value(game, player, effect, target):
                  if not d.get('desc') or card_matches(c, d['desc'])]
         mine = sum(1 for c in cards if c in player.graveyard or c in player.hand)
         return min(1, len(cards)) if effect.kind == 'graveyard_exile_choice' else len(cards) - 2 * mine
+    if effect.kind in ('give_control_choice', 'give_control_all'):     # giving permanents away is a cost
+        if effect.kind == 'give_control_choice':
+            return -perm_value(target) if isinstance(target, Permanent) else -5
+        return -sum(perm_value(x) for x in player.battlefield if matches(game, x, effect.data['selector'], player))
     if effect.kind == 'adapt':
         src = getattr(game.target_source, 'source', game.target_source)
         return effect.amount if isinstance(src, Permanent) and (not src.p1 or getattr(src, 'adapt_exceptions', 0)) and permanent_counter_allowed(src, '+1/+1') else 0

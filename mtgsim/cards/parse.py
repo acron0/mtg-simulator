@@ -309,7 +309,9 @@ def _parse_effects(text: str, opts: bool = False):
                         effects += [dataclasses.replace(e, cond=e.cond or cond) for e in new]
                         break
                 else:
-                    unmatched.append(sentence.strip())
+                    from ..cx_group_refs import cond_rider       # "If C, those creatures gain ..." (#628)
+                    if not cond_rider(cond, mi[2], effects):
+                        unmatched.append(sentence.strip())
                 continue
         first = len(effects)
         paid = reflexive = False
@@ -549,7 +551,7 @@ def _parse_face(data: dict) -> CardDef:
     text = cx_replace.two_player_text(text)
     text = re.sub(r"\bthis (creature|land|spell|enchantment|artifact|permanent|token|vehicle|saga|aura|equipment|class|spacecraft|battle|siege)\b", "~",
                   text, flags=re.I)
-    text = re.sub(r"\b([Pp]rotection from (?:white|blue|black|red|green)) and from (white|blue|black|red|green)\b",
+    text = re.sub(r"\b([Pp]rotection from (?:[A-Za-z]+)) and from ([A-Za-z]+)\b",      # colours, types, subtypes (#326)
                   lambda m: f"{m[1]} and {m[1][0]}rotection from {m[2]}", text)
     text = re.sub(r"(becomes the target of (?:a spell or ability|a spell)), sacrifice it\.", r"\1, sacrifice ~.", text)
     from ..blink import prepare_linked
@@ -612,6 +614,7 @@ def _parse_face(data: dict) -> CardDef:
             line = handle(st, line)
             if line is None:
                 break
+    from ..cx_cda import late_line; st.unsupported[:] = [u for u in st.unsupported if not late_line(u, st)]  # noqa: E702
     approximations = st.approximations
     enters_tapped = st.enters_tapped
     etb = st.etb
@@ -777,7 +780,8 @@ def _parse_ability_cost(text: str):
 
     A leading ability word ("Secrets of the Soul — ", "Vivid — ") is not part of the cost."""
     mana, extra = {"generic": 0}, {}
-    parts = text.split(", ")
+    parts = re.sub(r"(Pay half your life), (rounded (?:up|down))", r"\1@@\2", text).split(", ")
+    parts = [x.replace("@@", ", ") for x in parts]
     parts[0] = re.sub(r"^[A-Z][\w' ]* — ", "", parts[0])
     for part in parts:
         m = None
@@ -969,7 +973,8 @@ def _parse_trigger_line(line: str):
             flt = f"{'other' if m[1] == 'another' else 'any'}||{m[2]}"
         if events[0] in ("attacks", "blocks") and re.fullmatch(r"(?:sacrifice|destroy|return) it( to its owner's hand)? at end of combat\.?", rest):
             rest = rest.replace(" it", " ~", 1)      # "When ~ attacks or blocks, sacrifice it at end of combat"
-        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"(?:sacrifice|exile|destroy) it unless ", rest):
+        if events in (("etb",), ("attacks",), ("blocks",), ("attacks", "blocks")) and \
+                re.match(r"(?:sacrifice|exile|destroy) it unless ", rest):
             rest = rest.replace(" it", " ~", 1)      # "When ~ enters|attacks, sacrifice it unless you ..." (#330)
         if events == ("attacks",) and "while saddled" in pat:
             flt = "saddled"

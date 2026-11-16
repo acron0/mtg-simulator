@@ -13,6 +13,13 @@ from .state import Permanent, Player, StackItem, TARGETED, TrackedZone, _gy_desc
 from .policy import perm_value
 
 
+def _shrink(e) -> int:
+    """How much toughness a forced harmful effect takes away (0 when it doesn't shrink or deal damage)."""
+    if e.kind in ("debuff_one", "damage") or e.kind == "add_counter" and e.data.get("counter") == "-1/-1":
+        return e.amount if isinstance(e.amount, int) else 0
+    return 0
+
+
 class StackMixin:
     def settle(self):
         """Outside a priority loop: let players respond to whatever was just put on the
@@ -329,21 +336,30 @@ class StackMixin:
         return True
 
     def force_damage_targets(self, controller, effects, targets, source):
-        """A mandatory trigger must target when a legal creature exists, killable or not: damage (#295) and
-        -N/-N (#377). Not after a "you may" gate, nor for optional targets."""
+        """A mandatory trigger must target when a legal permanent exists (CR 603.3d), whatever the policy thinks of
+        it: damage (#295), -N/-N (#377), and any other targeted effect the policy declined, such as a drawback on
+        our own creature or a mode it chose (#823). Not after a "you may" gate, nor for optional targets."""
         targets = list(targets)
         may = False
         for i, e in enumerate(effects):
             may = may or e.kind == "pay_gate" and (e.data.get("gate") or ("",))[0] == "may"
-            hostile = e.kind == "damage" and e.target == "creature" or e.kind == "debuff_one" and e.target in TARGETED
-            if not hostile or may or e.data.get("optional") or e.data.get("optional_target") or i >= len(targets) \
+            hostile = e.target in TARGETED and e.target not in ("self", "prev", "multi", "player", "any") \
+                or e.kind == "damage" and e.target == "creature"
+            if not hostile or may or e.data.get("optional") or e.data.get("optional_target") \
+                    or e.data.get("optional_from") is not None or e.data.get("may") or i >= len(targets) \
                     or targets[i] is not None:
                 continue
             with self.targeting(source):
                 legal = [x for x in self.legal_targets(controller, e) if isinstance(x, Permanent)]
-            enemies = [x for x in legal if x.controller is not controller] or legal
+            # Same rule as the blink chooser (#774/#780): the opponent's best, else our least valuable one, preferring
+            # one the effect doesn't kill (a 5/5 shrinks for the turn rather than a 2/2 dying).
+            enemies = [x for x in legal if x.controller is not controller]
             if enemies:
                 targets[i] = max(enemies, key=perm_value)
+            elif legal:
+                n = _shrink(e)
+                safe = [x for x in legal if not n or x.toughness - getattr(x, "damage", 0) > n]
+                targets[i] = min(safe or legal, key=perm_value)
         return targets
 
     @staticmethod

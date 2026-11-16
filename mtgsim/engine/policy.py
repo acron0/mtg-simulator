@@ -269,6 +269,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return next((x for x in legal if x is (me if side == "mine" else opp)), None)
     if side in ("mine", "theirs"):      # newer kinds say whose permanent they want
         return max(mine if side == "mine" else theirs, key=perm_value, default=None)
+    if eff.target == "player" and eff.filter == "opp":
+        return opp if opp in legal else None    # "target opponent" is mandatory: the only choice (Wumpus Aberration)
     return None
 
 

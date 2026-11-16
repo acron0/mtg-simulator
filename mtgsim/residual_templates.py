@@ -46,6 +46,7 @@ def parse_line(line, st):
         "Creatures you control can't have -1/-1 counters put on them.": 'negative_counter_lock',
         'Creatures your opponents control lose infect.': 'remove_infect',
         "You can't play lands.": 'land_lock_you',
+        "You can't play lands or cast spells from your hand.": 'hand_lock_you',     # Experimental Frenzy (#326)
         "Players can't play lands.": 'land_lock_all',
         "Lands can't enter the battlefield.": 'land_entry_lock',
         "Each opponent who controls more lands than you can't play lands.": 'land_lock_more',
@@ -212,6 +213,13 @@ def lands_locked(player):
         player_flag(game, player, 'no_lands')
 
 
+def hand_locked(player):
+    """"You can't play lands or cast spells from your hand." (Experimental Frenzy): "from your hand" covers both, so
+    lands and spells from other zones (the top of the library) stay playable (#326)."""
+    game = getattr(player, '_game', None)
+    return game is not None and any(x.controller is player for x in sources(game, 'hand_lock_you'))
+
+
 def activation_blocked(game, perm, *, mana=False):
     return bool(perm.is_creature and sources(game, 'creature_activation_lock') or
                 perm.card.is_artifact and sources(game, 'artifact_activation_lock') or not mana and
@@ -349,8 +357,18 @@ def effect_value(game, player, effect, target):
             return effect.data['type'].title() in c.types and value is not None and ((value <= effect.amount) if effect.data['less'] else value >= effect.amount)
         return sum(c.cmc + 1 for c in player.graveyard if eligible(c))
     if effect.kind in ('graveyard_exile_all', 'graveyard_exile_choice'):
-        grave = target.graveyard if target in game.players else game.opponent(player).graveyard
-        return min(1, len(grave)) if effect.kind == 'graveyard_exile_choice' else len(grave)
+        from .engine.state import card_matches
+        d = effect.data or {}
+        who = {'you': [player], 'each': list(game.players)}.get(d.get('who'),
+              [target] if target in game.players else [game.opponent(player)])
+        cards = [c for pl in who for c in (pl.hand if d.get('zone') == 'hand' else pl.graveyard)
+                 if not d.get('desc') or card_matches(c, d['desc'])]
+        mine = sum(1 for c in cards if c in player.graveyard or c in player.hand)
+        return min(1, len(cards)) if effect.kind == 'graveyard_exile_choice' else len(cards) - 2 * mine
+    if effect.kind in ('give_control_choice', 'give_control_all'):     # giving permanents away is a cost
+        if effect.kind == 'give_control_choice':
+            return -perm_value(target) if isinstance(target, Permanent) else -5
+        return -sum(perm_value(x) for x in player.battlefield if matches(game, x, effect.data['selector'], player))
     if effect.kind == 'adapt':
         src = getattr(game.target_source, 'source', game.target_source)
         return effect.amount if isinstance(src, Permanent) and (not src.p1 or getattr(src, 'adapt_exceptions', 0)) and permanent_counter_allowed(src, '+1/+1') else 0

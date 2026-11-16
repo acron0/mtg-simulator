@@ -147,6 +147,7 @@ def _aim(card: CardDef, eff, target) -> list:
 # Effects plan_spell values through _extra_value.
 EXTRA_KINDS = {"reanimate_total", "reanimate_one", "tutor_gy", "regrow_perm", "regrow_any", "tutor", "explore", "earthbend", "unblockable", "oring_all", "pump_all", "double_counters", "learn",
                "tap", "stun", "mill", "proliferate", "search_plan", "gy_move"} | copies.KINDS
+EXTRA_KINDS.add("hand_free_cast")     # free casts from hand (free_cast.py, #625)
 
 CARRIER_KINDS = ("pump", "grant", "p1_counters", "unblockable")   # aimed at the creature that attacks
 
@@ -463,6 +464,11 @@ class HeuristicAI:
     def reset(self):
         """Clear per-game state (run_match calls this on a fresh copy for every game)."""
         self._idle_turns = 0       # own turns in a row we kept mana up for a counter and cast nothing
+        self.gift_choices = {}     # gift spell name -> promise it? (gift_choice.plan, read by promise_gift)
+
+    def promise_gift(self, game: Game, me: Player, card: CardDef):
+        """Promise this gift spell's gift? The mode plan_spell chose for it, or None (the engine's default)."""
+        return getattr(self, "gift_choices", {}).pop(card.name, None)
 
     # -------------------------------------------------------------- mulligan
     def keep_hand(self, hand: list[CardDef], mulligans: int) -> bool:
@@ -783,8 +789,10 @@ class HeuristicAI:
         """An X spell with X fixed at the largest value the remaining mana pays for, else None."""
         x = 0
         cost = game.cost_of(me, card)
+        per_x = card.mana_cost.get("X", 1) or 1          # {X}{X}: two mana per X (#531)
+        off = getattr(game, "x_reduction", 0)            # reduction the generic part couldn't use (#512)
         while x < 20 and engine.find_payment(game.mana_sources(me, spell=card), engine.add_costs(
-                cost, {"generic": x + 1})) is not None:
+                cost, {"generic": max(0, (x + 1) * per_x - off)})) is not None:
             x += 1
         if x < 1:
             return None
@@ -797,6 +805,9 @@ class HeuristicAI:
 
     def plan_spell(self, game: Game, me: Player, card: CardDef, precombat: bool = False):
         """Return (value, targets) if the AI wants to cast card in its main phase, else None."""
+        if card.gift and not card.is_permanent:        # value both modes, promise only if it pays (#483)
+            from . import gift_choice
+            return gift_choice.plan(self, game, me, card, precombat)
         opp = game.opponent(me)
         if card.is_ability and any(e.kind == "unearth_return" for e in card.spell_effects):
             # Unearth: a hasty attacker for one turn; worth casting before combat when it can attack
@@ -1172,6 +1183,9 @@ class HeuristicAI:
             return None, _gy_move_value(me, eff, pending) if mine else 0.0
         if k == "tutor":
             return None, 2.0      # the best card of a kind, from the library
+        if k == "hand_free_cast":   # "you may cast a <kind> spell from your hand without paying its mana cost" (#625)
+            from .free_cast import value as free_value
+            return None, free_value(me, eff, card)
         if k == "search_plan":
             v = search_counted.value(game, me, eff)       # "target player searches": that's us
             return (me if eff.target == "player" else None, v) if v > 0 else None
@@ -1326,6 +1340,9 @@ class HeuristicAI:
                 pool = [x for x in opp.battlefield if x.card.is_land]
             elif eff.target == "artifact":
                 pool = [x for x in opp.battlefield if getattr(x.card, "is_artifact", False)]
+            elif eff.target == "artifact_enchantment":
+                pool = [x for x in opp.battlefield if getattr(x.card, "is_artifact", False)
+                        or "Enchantment" in x.card.types]
             if eff.kind in ("tap", "stun"):
                 pool = [c for c in opp.creatures if not c.tapped or eff.kind == "stun"]
             legal = [c for c in pool if _legal(game, me, eff, c, card)

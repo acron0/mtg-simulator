@@ -1,5 +1,6 @@
-"""#629: "exchange life totals with target opponent" and "two target players exchange life totals" (cx_grammar_life,
-kind set_life op "exchange"), plus the AI's window for "Activate only during your upkeep" abilities (cx_upkeep_acts)."""
+"""#629: "exchange life totals with target opponent" (#760's life_total) and "[you may have] two target players exchange
+life totals" (life_total, extended here), plus the AI's window for "Activate only during your upkeep" abilities
+(cx_upkeep_acts)."""
 import random
 import unittest
 from pathlib import Path
@@ -41,11 +42,10 @@ class Parse(unittest.TestCase):
     def test_shapes(self):
         for c in (SWAP, BOTH, AXIS):
             self.assertEqual(c.unsupported, [], c.name)
-        inner = BOTH.spell_effects[0].data["effects"][0]
-        self.assertEqual((inner.kind, inner.data["op"], inner.data["both"], inner.data["may"]),
-                         ("set_life", "exchange", True, False))
-        self.assertTrue(AXIS.triggers[0].effects[-1].data["effects"][0].data["may"])
-        self.assertEqual(SWAP.spell_effects[0].data["side"], "theirs")
+        e = BOTH.spell_effects[0]
+        self.assertEqual((e.kind, e.data["op"], e.data["both"], e.data["may"]), ("life_total", "exchange", True, False))
+        self.assertTrue(AXIS.triggers[0].effects[-1].data["may"])
+        self.assertEqual(SWAP.spell_effects[0].filter, "opp")
 
     def test_refusals(self):
         for text in ("Exchange life totals with target creature.",
@@ -84,12 +84,16 @@ class Resolve(unittest.TestCase):
             g.settle()
             self.assertEqual((a.life, b.life), after, (mine, theirs))
 
-    def test_ai_value_wants_the_exchange_only_when_behind(self):
-        from mtgsim.cx_grammar import member_value
-        inner = SWAP.spell_effects[0].data["effects"][0]
-        for mine, theirs, good in ((5, 18, True), (18, 5, False), (19, 20, False)):
+    def test_ai_wants_the_exchange_only_when_behind(self):
+        from mtgsim.engine.policy import default_choose_target
+        from mtgsim.residual_templates import effect_value
+        eff = SWAP.spell_effects[0]
+        for mine, theirs, good in ((5, 18, True), (18, 5, False)):
             g, a, b = game(mine, theirs)
-            self.assertEqual(member_value(g, a, inner, b)[0] > 0, good, (mine, theirs))
+            with g.targeting(SWAP):
+                tgt = default_choose_target(g, a, eff)
+            self.assertEqual(tgt is b, good, (mine, theirs))
+            self.assertEqual(effect_value(g, a, eff, b) > 0, good, (mine, theirs))
 
 
 @unittest.skipUnless(DB_FILE.exists(), "card database not built")

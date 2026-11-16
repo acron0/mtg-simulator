@@ -1,5 +1,5 @@
-"""#629: losing and winning the game: "<player> loses the game" (cx_grammar_life, kind cx_lose_game) and conditions on a
-library or an exact hand size (cx_library_conds), checked until the game really ends with the right winner."""
+"""#629: losing and winning the game: "<player> loses the game" (#760's life_total, kind player_loses, extended here with
+"that player / its controller / defending player") and conditions on a library or an exact hand size (cx_library_conds), checked until the game really ends with the right winner."""
 import random
 import unittest
 from pathlib import Path
@@ -25,7 +25,7 @@ def game():
 class Parse(unittest.TestCase):
     def test_lose_verb_and_conditions(self):
         self.assertEqual(DOOM.unsupported, [])
-        # read by life_total (#760) or this branch's cx_grammar_life verb: either way the opponent is aimed at (Resolve)
+        # read by life_total (#760); the AI aims it at the opponent (Resolve)
         from mtgsim.cards.clauses import _if_cond
         self.assertEqual(_if_cond("your library has no cards in it"), 'lib:["res","you","library","==",0]')
         self.assertEqual(_if_cond("you have exactly thirteen cards in your hand"), 'lib:["res","you","hand","==",13]')

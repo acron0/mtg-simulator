@@ -443,6 +443,9 @@ def matches(game, permanent, spec, controller, source=None):
             return False
         if trait == 'attacking' and permanent not in game.attackers:
             return False
+        if trait == 'declared_attacker' and not (permanent in game.attackers and           # declared, not put onto
+                                                 getattr(permanent, 'attack_count', (None, 0))[0] == game.turn):  # the battlefield attacking
+            return False
         if trait == 'blocking' and not any(permanent in group for group in game.blocks.values()):
             return False
         if trait == 'suspected' and not permanent.has('suspected'):

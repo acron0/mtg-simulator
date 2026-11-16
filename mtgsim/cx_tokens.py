@@ -233,6 +233,9 @@ def _quantity(text: str):
         return ("cxq", "converge")          # converge: the spell's own payment (cx_grammar_quantity)
     if re.fullmatch(r"the amount of mana spent to cast ~", text, re.I):
         return ("cxq", "mana_amount")
+    if re.fullmatch(r"mana from .+? spent to cast (?:~|it)", text, re.I):   # Marut, Bat Colony
+        from .cx_grammar_quantity import quantity
+        return quantity("the number of " + text)
     if re.fullmatch(r"the amount of mana spent to cast that spell", text, re.I):
         return ("spell", "mana_spent")      # a cast trigger's spell (Game.x_quantity)
     m = re.fullmatch(r"your devotion to (white|blue|black|red|green)(?: and (white|blue|black|red|green))?", text, re.I)
@@ -246,6 +249,9 @@ def _quantity(text: str):
     m = re.fullmatch(r"([+\w/\-]+) counters? on (?:it|~)\b", text, re.I)
     if m:
         return ("subj_counters", m[1].lower())
+    if re.search(r"\bexcess damage\b", text, re.I):     # "... dealt to that creature this way": this resolution's
+        from .cx_grammar_quantity import quantity as grammar_quantity     # excess (rule 120.4a, #560)
+        return grammar_quantity(text)
     if re.search(r"\b(?:it|its|that creature|that permanent|that card)\b", text, re.I):
         return None                         # the triggering object, which the counts don't read
     from .cx_night_quantity import _quantity as quantity, _plural_zone

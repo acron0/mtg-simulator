@@ -238,6 +238,10 @@ def parse_line(line: str, st) -> bool:
             continue                    # neither gate nor scale: not this module's line
         read = _parts(body, st)
         if read is None:
+            if code and xq is None:     # a gated type / base P/T change (cx_static_chars, #520)
+                from .cx_static_chars import parse_line as chars_line
+                if chars_line(body[0].upper() + body[1:] + ".", st, gate=code):
+                    return True
             continue
         subj, parts = read
         has_pt = any(p.kind == "pump" for p in parts)

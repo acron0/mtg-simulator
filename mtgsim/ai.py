@@ -147,6 +147,7 @@ def _aim(card: CardDef, eff, target) -> list:
 # Effects plan_spell values through _extra_value.
 EXTRA_KINDS = {"reanimate_total", "reanimate_one", "tutor_gy", "regrow_perm", "regrow_any", "tutor", "explore", "earthbend", "unblockable", "oring_all", "pump_all", "double_counters", "learn",
                "tap", "stun", "mill", "proliferate", "search_plan", "gy_move"} | copies.KINDS
+EXTRA_KINDS.add("hand_free_cast")     # free casts from hand (free_cast.py, #625)
 
 CARRIER_KINDS = ("pump", "grant", "p1_counters", "unblockable")   # aimed at the creature that attacks
 
@@ -1182,6 +1183,9 @@ class HeuristicAI:
             return None, _gy_move_value(me, eff, pending) if mine else 0.0
         if k == "tutor":
             return None, 2.0      # the best card of a kind, from the library
+        if k == "hand_free_cast":   # "you may cast a <kind> spell from your hand without paying its mana cost" (#625)
+            from .free_cast import value as free_value
+            return None, free_value(me, eff, card)
         if k == "search_plan":
             v = search_counted.value(game, me, eff)       # "target player searches": that's us
             return (me if eff.target == "player" else None, v) if v > 0 else None

@@ -268,3 +268,5 @@ from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
 from .. import bounce_own as _bounce_own  # noqa: E402
 _EFFECT_PATTERNS += _bounce_own.EFFECT_PATTERNS
+from .. import free_cast as _free_cast  # noqa: E402  "cast a spell from your hand without paying its mana cost" (#625)
+_EFFECT_PATTERNS += _free_cast.EFFECT_PATTERNS

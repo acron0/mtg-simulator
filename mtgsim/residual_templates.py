@@ -343,11 +343,18 @@ def on_draw(game, p, card, first):
         game.queue_trigger(p, [Effect('miracle_cast')], name=card.name + ' miracle', context=(p.hand, p.hand.reference(card), cost))
 
 
+def _life_value(game, player, effect, target):
+    from .cx_grammar_life import ability_value
+    return ability_value(game, player, effect, target)
+
+
 def effect_value(game, player, effect, target):
     """Conservative values for new shared operations; no changes to older kinds."""
     from .engine.state import Permanent
     from .engine.policy import perm_value
     from .permanent_templates import matches
+    if effect.kind == 'cx_players' and (life := _life_value(game, player, effect, target)) is not None:   # (#629)
+        return life
     if effect.kind == 'selected_mass_move':
         return sum((1 if p is not player else -1) * perm_value(x) for p in game.players for x in p.battlefield
                    if matches(game, x, effect.data['selector'], player))

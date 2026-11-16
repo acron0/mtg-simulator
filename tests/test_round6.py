@@ -33,8 +33,9 @@ class Round6(Base):
     def test_overwrite_exiles_all_and_empowers(self):
         self.perm(BEAR)
         self.perm(BEAR, self.b)
+        item = self._item(None)     # "exiled this way" reads the resolving item's journal
         for eff in WIPE.spell_effects:
-            self.game.resolve(self.a, eff, None)
+            self.game.resolve(self.a, eff, None, item)
         self.assertEqual(len(self.a.creatures) + len(self.b.creatures), 0)
         jace = next(x for x in self.a.battlefield if "Jace" in x.card.subtypes)
         self.assertEqual(jace.loyalty, 2)

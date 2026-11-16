@@ -35,8 +35,10 @@ class Parsing(unittest.TestCase):
         c = card("Test Saga", "{2}", "Enchantment — Saga", "(As this Saga enters and after your draw step, add a lore "
                  "counter.)\nI — You gain 1 life.\nII, III — Whenever you cast a spell this turn, put a +1/+1 counter "
                  "on target creature you control.")
-        self.assertIn("II, III — Whenever you cast a spell this turn, put a +1/+1 counter on target creature you "
-                      "control.", c.unsupported)     # not stripped into a plain, permanent trigger
+        # chapters II and III are now a this-turn trigger the saga resolves, not a stripped permanent trigger
+        self.assertEqual(c.unsupported, [])
+        self.assertEqual(c.triggers, [])
+        self.assertEqual([e.kind for e in c.chapters[1]], ["cx_turn_trigger"])
 
     def test_he_deals_in_a_self_trigger(self):
         c = card("Test Shocker", "{2}{R}", "Creature — Human", "When ~ enters, he deals 2 damage to target creature and "

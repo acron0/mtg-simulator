@@ -268,6 +268,9 @@ from .. import linked_exile as _linked_exile  # noqa: E402
 _EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS
 from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
+from .. import chance_each as _chance_each  # noqa: E402
+_SUBS += _chance_each.SUBS
+_EFFECT_PATTERNS += _chance_each.EFFECT_PATTERNS
 from .. import protection_types as _protection_types  # noqa: E402
 KEYWORDS.update(_protection_types.KEYWORDS)
 from .. import bounce_own as _bounce_own  # noqa: E402
@@ -280,6 +283,8 @@ from .. import free_cast as _free_cast  # noqa: E402  "cast a spell from your ha
 _EFFECT_PATTERNS += _free_cast.EFFECT_PATTERNS
 from .. import cx_dmg_equal as _cx_dmg_equal  # noqa: E402  damage equal to a quantity (#626)
 _EFFECT_PATTERNS += _cx_dmg_equal.EFFECT_PATTERNS
+from .. import cx_owner_library as _cx_owner_library  # noqa: E402  "put it on top of its owner's library" (#628)
+_EFFECT_PATTERNS += _cx_owner_library.EFFECT_PATTERNS
 from .. import until_nonland as _until_nonland  # noqa: E402  "exile until a nonland card, you may cast it" (#625)
 _EFFECT_PATTERNS += _until_nonland.EFFECT_PATTERNS
 _SUBS += _until_nonland.SUBS

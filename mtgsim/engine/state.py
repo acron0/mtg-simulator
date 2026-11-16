@@ -108,9 +108,12 @@ def protected_from(perm, source) -> bool:
         return False
     if perm.has("protection from creatures") and isinstance(source, Permanent) and source.is_creature:
         return True
-    return any(perm.has(PROTECTION[c]) for c in card.colors) or \
-        len(card.colors) >= 2 and perm.has("protection from multicolored") or \
-        card.is_artifact and perm.has("protection from artifacts")
+    if any(perm.has(PROTECTION[c]) for c in card.colors) or \
+            len(card.colors) >= 2 and perm.has("protection from multicolored") or \
+            card.is_artifact and perm.has("protection from artifacts"):
+        return True
+    from ..protection_types import protected            # card types and subtypes ("from Demons", "from instants")
+    return protected(perm, card, source)
 
 
 class Permanent:

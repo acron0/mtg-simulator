@@ -17,7 +17,6 @@ _CONDS = [
     (r"you control a legendary creature", "legendary_creature"),
     (r"your opponents control (\w+) or more creatures", lambda m: f"opp_creatures>={_NUM[m[1]]}" if m[1] in _NUM else None),
     (r"there are four or more card types among cards in your graveyard", "delirium"),
-    (r"a creature is attacking you", "attacked_you"),
     (r"an opponent cast two or more spells this turn", "opp_two_spells"),
     (r"it targets an? (attacking|blocking|tapped) creature", lambda m: f"targets:{m[1]}"),
     (r"it targets a creature with (flying)", lambda m: f"targets:{m[1]}"),
@@ -55,8 +54,6 @@ def holds(game, p, card, key: str) -> bool:
     if key == "cast_other_spell":
         counts = getattr(game, "spells_cast", {})
         return counts.get("turn") == game.turn and counts.get(p.name, 0) >= 1
-    if key == "attacked_you":
-        return bool(game.attackers) and game.active is not p
     if key == "opp_two_spells":
         counts = getattr(game, "spells_cast", {})
         return counts.get("turn") == game.turn and counts.get(game.opponent(p).name, 0) >= 2

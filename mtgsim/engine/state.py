@@ -119,6 +119,20 @@ def protected_from(perm, source) -> bool:
     return protected(perm, card, source)
 
 
+
+_LAZY: dict = {}
+
+
+def _lazy(module: str, name: str):
+    """mtgsim.<module>.<name>, imported on first use and kept: these modules import this one, and a function-level
+    import costs about a microsecond on paths called millions of times per game (#698)."""
+    key = module + "." + name
+    found = _LAZY.get(key)
+    if found is None:
+        import importlib
+        found = _LAZY[key] = getattr(importlib.import_module("mtgsim." + module), name)
+    return found
+
 class Permanent:
     def __setattr__(self, name, value):
         if name in ("attached_to", "aura_host") and "card" in self.__dict__:
@@ -293,8 +307,7 @@ class Permanent:
     def _pt_bonus(self):
         """(power, toughness) from anthems, attached equipment and "for each" counts, in one pass
         over the battlefield; the same sums as anthem, equipment and per_bonus."""
-        from ..residual_templates import anthem_bonus
-        bp, bt = anthem_bonus(self)
+        bp, bt = _lazy("residual_templates", "anthem_bonus")(self)
         creature = self.is_creature
         what = self.card.pt_per
         sp, st = self.card.pt_scale
@@ -444,9 +457,13 @@ class Permanent:
         return continuous.keyword(self, kw, self._has_unlayered(kw))
 
     def _has_unlayered(self, kw):
+        # the permanent's own keywords first: every check up to keyword_at_counters only returns True and has no
+        # side effects, so the cheapest one can go first without changing the answer (#698)
+        if kw in self.card.keywords or kw in self.temp_kw or kw in self.perm_kw or (kw in KEYWORDS and self.counters.get(kw, 0) > 0):
+            return True
         game = getattr(self.controller, '_game', None)
         if game is not None:
-            from ..permanent_templates import matches
+            matches = _lazy("permanent_templates", "matches")
             for player in game.players:
                 for source in player.battlefield:
                     grants = source.card.static_keyword_grants
@@ -486,8 +503,7 @@ class Permanent:
         for k, cond in self.card.cond_keywords:
             if k == kw and self.condition(cond):
                 return True
-        from ..cx_statics import grants as conditional_grant
-        if conditional_grant(self, kw):
+        if _lazy("cx_statics", "grants")(self, kw):
             return True
         if any((sub in self.card.subtypes or sub == "Face-down" and self.hidden is not None) and k == kw
                and not (other and x is self)

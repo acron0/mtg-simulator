@@ -11,11 +11,14 @@ replacement effects. "Exchange" with a player target is the same two moves, one 
 """
 from __future__ import annotations
 
+import re
+
 _NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
         "ten": 10, "twenty": 20}
 _WHO = {"your": ("you", "none", ""), "target player's": ("target", "player", ""),
         "target opponent's": ("target", "player", "opp"), "each player's": ("each", "none", ""),
-        "each opponent's": ("opponents", "none", "")}
+        "each opponent's": ("opponents", "none", ""),
+        "its controller's": ("target", "that_controller", "")}     # Celestial Mantle: the enchanted creature's controller
 
 
 def _double(m):
@@ -27,6 +30,9 @@ def _double(m):
 def _become(m):
     from .cards.model import Effect
     who, target, flt = _WHO[m[1].lower()]
+    extreme = re.fullmatch(r"the (lowest|highest) life total among all players", m[2], re.I)
+    if extreme:     # Repay in Kind, The Darkhold, Arbiter of Knollridge: read as the effect resolves
+        return Effect("life_total", target=target, filter=flt, data={"op": extreme[1].lower(), "who": who})
     if who in ("each", "opponents"):
         from .cards.model import NO_MATCH
         return NO_MATCH
@@ -46,9 +52,11 @@ def _loses(m):
 
 
 EFFECT_PATTERNS = [
-    (r"double (your|target player's|target opponent's|each player's|each opponent's) life total", _double),
+    (r"double (your|target player's|target opponent's|each player's|each opponent's|its controller's) life total",
+     _double),
     (r"(your|target player's|target opponent's) life total becomes (\d+|one|two|three|four|five|six|seven|eight|"
      r"nine|ten|twenty)", _become),
+    (r"(each player's) life total becomes (the (?:lowest|highest) life total among all players)", _become),
     (r"exchange life totals with target (player|opponent)", _exchange),
     (r"target (player|opponent) loses the game", _loses),
 ]

@@ -535,6 +535,15 @@ def parse_line(line, st):
     if m and m[2].lower() not in ('+1/+1', '-1/-1') and not st.extra.get('etb_named_counters'):
         st.extra['etb_named_counters'] = (m[2].lower(), _num(m[1]))
         return True
+    # "Other creatures you control have ward {1}": a parameter the plain keyword grants can't carry; Permanent.ward
+    # reads advanced_rules["static_ward"] (selector, N) from every battlefield source.
+    m = re.fullmatch(r'((?:Other |All |Each )?[A-Za-z][^.{}"]*? you control(?: with [^.{}"]+?)?) (?:have|has) ward \{(\d+)\}\.', line)
+    if m:
+        spec = selector(re.sub(r'^(?:All|Each) ', '', m[1]), plural=True)
+        if spec is not None and 'keyword' not in spec and spec.get('counter', ('x',))[0] not in ('a', 'an', 'any'):
+            rules = st.extra.setdefault('advanced_rules', {})
+            rules['static_ward'] = rules.get('static_ward', ()) + ((spec, int(m[2])),)
+            return True
     # Static keyword grants reuse the same selectors as targeted operations.
     m = re.fullmatch(r'(.+?) (?:have|has) (.+)\.', line)
     if m:

@@ -19,9 +19,21 @@ def referent(obj, item):
 
 
 @kind("bite_src")
-def bite_src(game, eff, item, target, **_):
+def bite_src(game, p, eff, item, target, **_):
     """One creature that will deal the damage: recorded on the stack item (a source that is an illegal target by
     now never gets here, so it deals no damage)."""
+    if eff.data.get("run") and item is not None:       # "They each deal damage ...": the targets before it
+        idx = next(i for i, e in enumerate(item.effects) if e is eff)
+        sources = getattr(item, "bite_sources", None)
+        if sources is None:
+            item.bite_sources = sources = []
+        with game.targeting(item):
+            # still on the battlefield and targetable: the run's own effects may have changed what the targeting
+            # restriction read ("tap two target untapped creatures"), which was checked as each of them resolved
+            for t in item.targets[idx - eff.data["run"]:idx]:
+                if isinstance(t, Permanent) and t in t.controller.battlefield and game.targetable(t, p):
+                    sources.append(t)
+        return
     if eff.target == "prev":
         target = referent(target, item)
     if item is not None and isinstance(target, Permanent):

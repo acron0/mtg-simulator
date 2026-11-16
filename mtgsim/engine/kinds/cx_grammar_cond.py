@@ -97,6 +97,8 @@ def _pay(game, payer, cost, item, eff=None) -> bool:
         for x in chosen:
             game.sacrifice(x)
         return True
+    if any(key in cost for key in ("bounce", "tap", "remove_counter", "exile_gy", "damage")):
+        return _pay_counted(game, payer, cost, item)
     if "discard" in cost:
         cards = [c for c in payer.hand if _card_ok(c, cost["discard"])]
         if not cards:
@@ -109,4 +111,53 @@ def _pay(game, payer, cost, item, eff=None) -> bool:
         return False
     game.pay(payer, mana)
     game.log(f"pays {sum(mana.values())} mana", payer)
+    return True
+
+
+def _pay_counted(game, payer, cost, item) -> bool:
+    """The counted costs (#330): every object or nothing, from the payer's own permanents / graveyard."""
+    from ..policy import perm_value
+    from ...cx_condlib import _card_ok
+    source = getattr(item, "source", None)
+    n = cost.get("count", 1)
+    if "bounce" in cost or "tap" in cost:
+        spec = cost.get("bounce", cost.get("tap"))
+        pool = [x for x in payer.battlefield if _card_ok(x.card, spec, x) and not (cost["other"] and x is source)
+                and not ("tap" in cost and x.tapped)]
+        if len(pool) < n:
+            return False
+        # the cheapest objects; a tapped land is the cheapest to give back (its mana is already used)
+        chosen = sorted(pool, key=lambda x: (perm_value(x), not x.tapped))[:n]
+        for x in chosen:
+            if "tap" in cost:
+                x.tapped = True
+                game.log(f"taps {x.card.name}", payer)
+            else:
+                game.leave_battlefield(x, "hand")
+                game.log(f"returns {x.card.name} to its owner's hand", payer)
+        return True
+    if "remove_counter" in cost:
+        kind_ = cost["remove_counter"]
+        if not isinstance(source, Permanent) or source not in source.controller.battlefield or \
+                source.counters.get(kind_, 0) < n:
+            return False
+        source.counters[kind_] -= n
+        game.log(f"removes {n} {kind_} counter(s) from {source.card.name}", payer)
+        return True
+    if "exile_gy" in cost:
+        cards = [c for c in payer.graveyard if _card_ok(c, cost["exile_gy"])]
+        if not cards:
+            return False
+        card = min(cards, key=lambda c: c.cmc)
+        payer.graveyard.remove(card)
+        payer.exile.append(card)
+        game.log(f"exiles {card.name} from their graveyard", payer)
+        return True
+    n = cost["damage"]
+    if payer.life <= n + 2:
+        return False
+    # dealt by the source (the spell itself when it has no permanent), so prevention and lifelink apply
+    by = getattr(item, "controller", None)
+    game.deal_damage(payer, n, by, cause="unless: damage",
+                     source=source if source is not None else getattr(item, "card", None))
     return True

@@ -99,8 +99,10 @@ def _pair(kind, target="creature", flt="opp"):
 
 
 def _effect_bounce_own():
+    """'Return up to one other target permanent you control': any permanent of yours (lands too), optional,
+    and never the source itself (#435)."""
     from .cards import Effect
-    return Effect("bounce_own", target="nonland_perm", filter="mine")
+    return Effect("bounce_own", target="permanent", filter="mine", data={"other": True, "optional_target": True})
 
 
 _ORD = ("artifact", "enchantment", "creature", "planeswalker")
@@ -225,6 +227,8 @@ def resolve(game, p, eff, target, item):
             game.leave_battlefield(target, "hand")
         return
     mine = item.targets[0] if item is not None and item.targets else None
+    if mine is not None and item.effects and item.effects[0] is eff:
+        mine = None     # a lone "it fights target creature": targets[0] is this effect's own target, not the fighter (#319)
     if mine is None and item is not None:
         mine = item.source          # "When ~ enters, it deals damage equal to its power to ..."
     if mine is None or target is None:

@@ -44,11 +44,15 @@ class BattlefieldMixin:
     def exile_until_leaves(self, src: Permanent, perms: list):
         """Exile perms until src leaves the battlefield (Seam Rip, Pinnacle Starcage)."""
         for x in perms:
-            owner, card, token = x.controller, x.front, x.front.is_token
+            # the owner's exile, and the exact card exiled: it returns to its owner, and not once it left exile (#347)
+            owner, card, token = x.owner, x.front, x.front.is_token
             if self.leave_battlefield(x, "exile"):
                 self.log(f"exiles {x.card.name} until {src.card.name} leaves", src.controller)
-                if not token:
+                if not token and card in owner.exile:
                     src.exiled_cards.append((card, owner))
+                    if not hasattr(src, "exiled_refs"):
+                        src.exiled_refs = {}
+                    src.exiled_refs[id(card)] = owner.exile.reference(card)
 
     def enter_battlefield(self, p: Player, card: CardDef, tapped_attacking: bool = False, x: int = 0,
                           *, tapped: bool = False, counters: dict | None = None,
@@ -60,7 +64,7 @@ class BattlefieldMixin:
             # Reusable token blueprints create a new physical token each time.
             card = CardInstance(card)
         card, front = copies.clone_on_enter(self, p, card)
-        counters = copies.clone_entry_counters(card, front, x, counters)
+        counters = copies.clone_entry_counters(card, front, x, counters, self, p)
         perm = Permanent(card, p)
         perm.front = instance(physical_card if physical_card is not None else front, p)
         perm.owner = perm.front.owner
@@ -73,6 +77,7 @@ class BattlefieldMixin:
         perm.front.generation += 1
         perm.front.zone = perm
         perm.entered_turn = self.turn
+        perm.entered_from = source_zone        # "enters from a graveyard" (cx_events)
         perm.rules_timestamp = self.next_effect_timestamp()
         from ..cx_type_grants import changed as type_grants_changed
         type_grants_changed(self, perm)         # a creature type granted by a static ability (layer 4)
@@ -96,6 +101,7 @@ class BattlefieldMixin:
             perm.mana_spent = cast[2]
             perm.mana_colors = frozenset(getattr(self, "_entry_mana_colors", ()))     # converge
             perm.mana_by_color = dict(getattr(self, "_entry_mana_by_color", {}))
+            perm.was_cast = True       # already as it enters ("if it wasn't cast", Freestrider Commando)
         others = sum(x.card.is_land for x in p.battlefield)
         cond = card.tapped_condition
         if cond.startswith("other_subtype:"):
@@ -189,6 +195,9 @@ class BattlefieldMixin:
         if card.advanced_rules.get("cx_etb_if"):
             from .. import cx_replace
             cx_replace.entry_counters(self, p, perm)
+        if card.advanced_rules.get("cx_etb_q"):       # "... for each mana spent to cast it" (cx_replace)
+            from .. import cx_replace
+            cx_replace.entry_spent_counters(self, perm)
         if card.entry_counter_quantity:
             from ..backlog_templates import amount
             kind, spec = card.entry_counter_quantity
@@ -222,6 +231,7 @@ class BattlefieldMixin:
             from ..batch1_templates import curse_event
             curse_event(self, p, 'curse_creature_enters')
         self._residual_source_index = None
+        type_grants_changed(self, perm)         # again, now that it's on the battlefield: its own group grants
         if not card.is_land:
             p.entered_nonland_turn += 1
         if card.turn_creature and p is self.active:

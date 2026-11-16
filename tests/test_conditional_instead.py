@@ -53,11 +53,18 @@ class BargainGift(OracleCards):
                 self.assertEqual(before - self.b.life, int(gifted))
                 self.b.battlefield.remove(victim)
 
-    def test_different_kind_without_a_reference_stays_unmatched(self):
+    def test_different_kind_replaces_the_whole_sentence_before(self):
+        # #321: an "instead" sentence replaces the instruction of the sentence before it, whatever its kind
         effects, bad = _parse_effects("Draw a card. If the gift was promised, you gain 3 life instead.", opts=True)
+        self.assertEqual(bad, [])
+        self.assertEqual([(e.kind, e.cond) for e in effects],
+                         [("draw", 'lib:["not","gifted"]'), ("gain_life", "gifted")])
+
+    def test_kind_shared_with_part_of_a_longer_sentence_stays_unmatched(self):
+        effects, bad = _parse_effects("Draw a card and create a Food token. If the gift was promised, draw two cards "
+                                      "and you gain 3 life instead.", opts=True)
         self.assertTrue(bad)
-        self.assertEqual(len(effects), 1)
-        self.assertEqual(effects[0].cond, "")
+        self.assertFalse(any(e.data.get("instead_gate") for e in effects))
 
 
 class BranchChoice(Base):

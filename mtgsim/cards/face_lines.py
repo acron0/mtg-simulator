@@ -186,8 +186,8 @@ def _face_special_lines(st, line):
         from .. import counter_mechanics, permanent_templates, backlog_templates, advanced_templates, residual_templates, batch1_templates, cx_combat_costs
         if cx_combat_costs.parse_line(line, st):
             return None
-        from .. import cx_replace, cx_top, cx_abilitycopy, cx_trigger_grants as _cx_trigger_grants, cx_grammar_crewblock as _cx_crewblock, cx_type_grants as _cx_type_grants, cx_multi_target as _cx_multi_target
-        if cx_replace.parse_line(line, st) or cx_top.parse_line(line, st) or cx_abilitycopy.parse_line(line, st) or residual_templates.parse_line(line, st) or batch1_templates.parse_line(line, st) or advanced_templates.parse_line(line, st) or backlog_templates.parse_line(line, st) or permanent_templates.parse_line(line, st) or counter_mechanics.parse_line(line, st) or _creature_keywords.parse_line(line, st) or _alt_casts.parse_line(line, st) or _storage.parse_line(line, st) or _cx_trigger_grants.parse_line(line, st) or _cx_type_grants.parse_line(line, st) or _cx_crewblock.parse_line(line, st) or _cx_multi_target.parse_line(line, st):
+        from .. import cx_replace, cx_top, cx_abilitycopy, cx_trigger_grants as _cx_trigger_grants, cx_grammar_crewblock as _cx_crewblock, cx_type_grants as _cx_type_grants, cx_static_chars as _cx_static_chars, cx_multi_target as _cx_multi_target
+        if cx_replace.parse_line(line, st) or cx_top.parse_line(line, st) or cx_abilitycopy.parse_line(line, st) or residual_templates.parse_line(line, st) or batch1_templates.parse_line(line, st) or advanced_templates.parse_line(line, st) or backlog_templates.parse_line(line, st) or permanent_templates.parse_line(line, st) or counter_mechanics.parse_line(line, st) or _creature_keywords.parse_line(line, st) or _alt_casts.parse_line(line, st) or _storage.parse_line(line, st) or _cx_trigger_grants.parse_line(line, st) or _cx_type_grants.parse_line(line, st) or _cx_static_chars.parse_line(line, st) or _cx_crewblock.parse_line(line, st) or _cx_multi_target.parse_line(line, st):
             return None
         parts = [p.strip().lower() for p in re.split(r",(?: and)? | and |,", line)]
         if all(p in KEYWORDS or re.fullmatch(r"(?:ward \{\d+\}|toxic \d+|bushido \d+)", p) for p in parts):
@@ -485,6 +485,13 @@ def _face_land_and_mana_lines(st, line):
             return None
         if re.fullmatch(r"~ enters tapped if it's not your turn\.", line):
             extra["tapped_condition"] = "not_your_turn"
+            return None
+        from ..mana_count import parse_conditional
+        cond_mana = parse_conditional(line)
+        if cond_mana:       # "{T}: Add {C}. If you control an Urza's Mine and ..., add {C}{C} instead." (#321)
+            produces |= {cond_mana[0]}
+            extra["mana_amount"] = max(cond_mana[1], extra.get("mana_amount", 1))
+            extra["mana_dyn"] = cond_mana[2]
             return None
         m = re.fullmatch(r"\{T\}: Add ([^.]+)\.(?: ~ deals 1 damage to you\.)?", line)
         if m:
@@ -982,6 +989,12 @@ def _face_cost_and_static_lines(st, line):
         if m:                                    # a state trigger: sacrificed while you control none
             extra["needs_land"] = {"lands": "Land", "Plains": "Plains"}.get(m[1], m[1][:-1])
             return None
+        from .. import cx_delayed as _cx_delayed
+        if _cx_delayed.flash_line(line, st):                  # flash Auras sacrificed at cleanup if cast as an instant
+            return None
+        from .. import cx_trig_state as _cx_trig_state
+        if _cx_trig_state.parse_line(line, extra):        # "When you control no other creatures, sacrifice ~."
+            return None
         line = re.sub(r"^Raid — (?=~ enters with)", "", line)
         m = re.fullmatch(r"~ enters with a \+1/\+1 counter on it if (an opponent lost life|a creature died|you attacked) "
                          r"this turn\.", line)
@@ -1257,4 +1270,6 @@ def _face_ability_lines(st, line):
 from .. import cx_grammar  # noqa: E402
 from ..cx_night_flash import parse_line as _night_flash_line  # noqa: E402
 from ..cx_night_aura import parse_line as _night_aura_line  # noqa: E402
-_FACE_LINE_PARSERS = (_night_aura_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)
+from ..named_cards import parse_line as _named_cards_line  # noqa: E402
+from ..cx_flash_perm import parse_line as _flash_perm_line  # noqa: E402
+_FACE_LINE_PARSERS = (_named_cards_line, _night_aura_line, _flash_perm_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)

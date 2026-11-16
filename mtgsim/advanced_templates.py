@@ -107,8 +107,6 @@ def parse_effect(text, previous):
             return []
     if s == 'look at the top four cards of target opponent\'s library, exile one of them face down, then put the rest on the bottom of that library in a random order':
         return [Effect('opponent_exile', 4, target='player', filter='opp')]
-    if s == 'you may cast that card for as long as it remains exiled, and mana of any type can be spent to cast that spell':
-        return [Effect('exile_permission')]
     return None
 
 
@@ -117,7 +115,10 @@ def grave_targets(game, p, eff):
         from .cx_grammar_zones import grave_cards
         return grave_cards(game, p, eff)
     types = eff.data['grave_type'].split(' or ')
-    cards = [c for c in p.graveyard if ('cmc_exact' not in eff.data or c.cmc == eff.data['cmc_exact']) and
+    exact = eff.data.get('cmc_exact')
+    if exact == 1 and eff.data.get('xq'):        # "with mana value X, where X is Q": X read as 1 at parse (#317)
+        exact = game.target_x(eff, p)
+    cards = [c for c in p.graveyard if (exact is None or c.cmc == exact) and
              any(c.is_permanent if t == 'permanent' else t.title() in c.types for t in types)]
     if eff.data.get('tribal_group'):
         from .permanent_templates import _CREATURE_SUBTYPES
@@ -276,14 +277,15 @@ def permission_options(game, p):
             out.append(option)
         if c.split_right is not None and c.split_right.advanced_rules.get('aftermath'):
             out.append(game._variant(c, 'aftermath'))
-    for zone, ref in getattr(p, 'foreign_permissions', []):
+    for zone, ref, *free in getattr(p, 'foreign_permissions', []):     # (zone, ref[, free]) (cx_exile_play)
         card = ref.find(zone)
         if card is not None:
             key = 'foreign_' + str(card.physical_id)
             if not hasattr(game, 'foreign_zones'):
                 game.foreign_zones = {}
             game.foreign_zones[(id(p), key)] = zone
-            option = game._variant(card, key)
+            from .exile_permissions import alt_cost
+            option = game._variant(card, key, alt_cost(card, key, free[0] if free else False))
             out.append(option)
     return out
 
@@ -298,7 +300,7 @@ def permission_available(game, p, card, kind):
     if kind == 'aftermath':
         return card.advanced_rules.get('aftermath', False)
     if kind.startswith('foreign_'):
-        return any(ref.find(zone) is game._origin(card)[0] for zone, ref in getattr(p, 'foreign_permissions', []))
+        return any(ref.find(zone) is game._origin(card)[0] for zone, ref, *_ in getattr(p, 'foreign_permissions', []))
     if kind.startswith('exile_cast_'):
         from . import exile_permissions
         return exile_permissions.available(game, p, card, kind)

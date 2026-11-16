@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .. import continuous, counter_mechanics, cx_static_damage, cx_triggers, that_much
 
-from .. import auras
+from .. import auras, cx_trig_damage, cx_trig_state
 from ..cards import AltCost, CardDef, Effect
 from .. import rules_events
 from .mana import find_payment
@@ -71,6 +71,7 @@ class EffectsMixin:
         if isinstance(target, Player):
             target.last_damage_turn = self.turn
         self.event_amount = amount          # "that much" for the triggers fired below
+        cx_trig_damage.observe(self, source, target, by, amount)       # damage heads from any source (#521)
         if isinstance(source, Permanent) and source in source.controller.battlefield:
             self.fire(source.controller, "deals_damage", source, context=target)
             if isinstance(target, Player):
@@ -305,8 +306,10 @@ class EffectsMixin:
             self.leave_battlefield(a, "graveyard")
         self.fire(controller, "leaves", perm)
         returning, perm.exiled_cards = perm.exiled_cards, []
+        refs = getattr(perm, "exiled_refs", {})
         for card, card_owner in returning:
-            if card in card_owner.exile:
+            ref = refs.get(id(card))
+            if (ref.find(card_owner.exile) is not None) if ref is not None else card in card_owner.exile:
                 card_owner.exile.remove(card)
                 self.log(f"{card.name} returns from exile", card_owner)
                 self.enter_battlefield(card_owner, card)
@@ -380,7 +383,8 @@ class EffectsMixin:
             for trig in other.triggers:
                 if trig.event == "sacrifice" and (card_matches(perm.card, trig.filter) if not trig.filter.startswith("another ") else
                                                   other is not perm and card_matches(perm.card, "a " + trig.filter[8:])):
-                    self.queue_trigger(p, trig.effects, other, other.card.name)
+                    from ..cx_grammar_zones import bake_event
+                    self.queue_trigger(p, bake_event(trig.effects, perm), other, other.card.name)
         self.fire(p, "sacrificed", perm)     # "whenever a player sacrifices a <desc>" (cx_events)
         self.dies(perm, counter_sources=counter_sources) if perm.is_creature else self.leave_battlefield(perm, "graveyard")
 
@@ -543,7 +547,8 @@ class EffectsMixin:
                         perm.attached_to = None
                         changed = True
                     if perm.card.needs_land and not any(perm.card.needs_land in x.card.subtypes or
-                                                        perm.card.needs_land in x.card.types for x in p.battlefield):
+                                                        perm.card.needs_land in x.card.types for x in p.battlefield) \
+                            or cx_trig_state.unmet(self, perm):
                         self.sacrifice(perm)
                         changed = True
                         continue

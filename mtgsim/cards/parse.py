@@ -383,6 +383,7 @@ def _parse_effects(text: str, opts: bool = False):
     from ..cx_grammar_cond import resolve_instead
     unmatched += resolve_instead(effects, starts)    # "If C, B instead": the effects B replaces get "not C"
     mark(effects, pending)
+    from ..where_x import carry as _carry_x; _carry_x(effects)  # noqa: E702  an earlier sentence's X (#746)
     return effects, unmatched
 
 

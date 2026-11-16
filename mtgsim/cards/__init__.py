@@ -268,3 +268,5 @@ from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
 from .. import bounce_own as _bounce_own  # noqa: E402
 _EFFECT_PATTERNS += _bounce_own.EFFECT_PATTERNS
+from .. import cx_owner_library as _cx_owner_library  # noqa: E402  "put it on top of its owner's library" (#628)
+_EFFECT_PATTERNS += _cx_owner_library.EFFECT_PATTERNS

@@ -155,8 +155,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return min(mine, key=perm_value, default=None)
     if k == 'adapt_exception':
         return max(mine, key=perm_value, default=None)
-    if k in ('control_permanent', 'opponent_exile'):
-        return max(theirs, key=perm_value, default=None) if k == 'control_permanent' else opp
+    if k in ('control_permanent', 'control_linked', 'opponent_exile'):     # control_linked: "... for as long as ..."
+        return opp if k == 'opponent_exile' else max(theirs, key=perm_value, default=None)
     if k in ('grave_library_top', 'return_tribal_grave'):
         return max(legal, key=lambda c: c.cmc, default=None)
     if k == 'allocated_counter':
@@ -376,8 +376,8 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                 total += search_counted.value(game, me, e)
             elif k in ("return_tribal_grave", "grave_library_top"):
                 total += tgt.cmc + 1 if tgt is not None else 0
-            elif k == "control_permanent":
-                total += 2 * perm_value(tgt)
+            elif k in ("control_permanent", "control_linked"):
+                total += 2 * perm_value(tgt) if tgt is not None else 0
             elif k == "populate":
                 total += max((perm_value(x) for x in me.creatures if x.card.is_token), default=0)
             elif k == "proliferate":

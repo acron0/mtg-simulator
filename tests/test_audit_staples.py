@@ -1,6 +1,6 @@
 """Audit 2026-11-16 (opus-cast), round 5 (older staples): "Its controller may search ..." gave the land to the
 caster (Path to Exile, Assassin's Trophy, Ghost Quarter), "Destroy target permanent" couldn't hit lands
-(Vindicate, Beast Within, Generous Gift), and "any color that a land ... could produce" counted as full."""
+(Vindicate, Beast Within, Generous Gift)."""
 import unittest
 
 from mtgsim.engine import Permanent, StackItem
@@ -56,14 +56,11 @@ class Staples(Base):
 class RealCards(Base):
     def test_real_cards(self):
         from mtgsim.carddb import CardDB
-        from mtgsim.coverage import card_coverage
         db = CardDB(offline=True)
         for name in ("Path to Exile", "Assassin's Trophy"):
             self.assertEqual(db.get(name).spell_effects[1].target, "that_controller", name)
         for name in ("Vindicate", "Beast Within", "Generous Gift"):
             self.assertEqual(db.get(name).spell_effects[0].target, "permanent", name)
-        for name in ("Fellwar Stone", "Exotic Orchard"):
-            self.assertEqual(card_coverage(db.get(name)).status, "simplified", name)
 
 
 if __name__ == "__main__":

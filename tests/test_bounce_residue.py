@@ -33,7 +33,8 @@ class Parse(unittest.TestCase):
     @unittest.skipUnless(DB_FILE.exists(), "card database not built")
     def test_real_cards_full(self):
         cards = db()
-        for name in ("Blizzard Specter", "Blood Clock", "Mana Breach", "Sunken Hope", "Angelic Destiny",
+        for name in ("Blizzard Specter", "Blood Clock", "Mana Breach", "Sunken Hope", "Angelic Destiny", "Whelming Wave",
+                     "Slinn Voda, the Rising Deep", "Cyclone Summoner",
                      "Nurgle's Rot", "Weatherseed Totem", "Endless Evil", "Ringskipper"):
             with self.subTest(name=name):
                 c = cards.get(name)
@@ -143,3 +144,36 @@ class WithAuras(Base):
         self.assertEqual(sorted(c.name for c in self.b.hand), ["Grizzly Bears"])
         self.assertEqual(sorted(c.name for c in self.a.graveyard), ["Test Aura", "Test Undoing"])  # black one
         self.assertEqual(len(self.b.graveyard), 1)                           # their white one
+
+
+class AllExcept(Base):
+    def cast(self, text):
+        c = card("Test Wave", "{2}{U}{U}", "Sorcery", text)
+        self.assertEqual(c.unsupported, [], text)
+        self.game.stack.append(StackItem(self.a, list(c.spell_effects), [None] * len(c.spell_effects), card=c,
+                                         name=c.name))
+        self.game.resolve_top()
+
+    def test_whelming_wave_spares_the_sea_monsters(self):
+        kraken = self.game.enter_battlefield(self.b, card("Test Kraken", "{5}{U}", "Creature — Kraken", "", 6, 6))
+        octopus = self.game.enter_battlefield(self.a, card("Test Octopus", "{U}", "Creature — Octopus", "", 1, 1))
+        bear = self.game.enter_battlefield(self.b, BEAR)
+        self.cast("Return all creatures to their owners' hands except for Krakens, Leviathans, Octopuses, and "
+                  "Serpents.")
+        self.assertIn(kraken, self.b.battlefield)
+        self.assertIn(octopus, self.a.battlefield)
+        self.assertNotIn(bear, self.b.battlefield)
+
+    def test_except_giants_wizards_and_lands(self):
+        giant = self.game.enter_battlefield(self.a, card("Test Giant", "{4}", "Creature — Giant", "", 4, 4))
+        land = self.game.enter_battlefield(self.b, FOREST)
+        rock = self.game.enter_battlefield(self.b, card("Test Rock", "{2}", "Artifact", ""))
+        bear = self.game.enter_battlefield(self.b, BEAR)
+        self.cast("Return all permanents to their owners' hands except for Giants, Wizards, and lands.")
+        self.assertIn(giant, self.a.battlefield)
+        self.assertIn(land, self.b.battlefield)
+        self.assertNotIn(rock, self.b.battlefield)
+        self.assertNotIn(bear, self.b.battlefield)
+
+    def test_unknown_exception_stays_ignored(self):
+        self.assertTrue(_parse_effects("Return all creatures to their owners' hands except for Foos.")[1])

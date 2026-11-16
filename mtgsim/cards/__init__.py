@@ -268,6 +268,8 @@ from .. import linked_exile as _linked_exile  # noqa: E402
 _EFFECT_PATTERNS += _linked_exile.EFFECT_PATTERNS
 from .. import cx_spent as _cx_spent  # noqa: E402
 _SUBS += _cx_spent.SUBS
+from .. import cx_ifpos as _cx_ifpos  # noqa: E402
+_SUBS += _cx_ifpos.SUBS
 from .. import damage_reorder as _damage_reorder  # noqa: E402
 _SUBS += _damage_reorder.SUBS
 _EFFECT_PATTERNS += _damage_reorder.EFFECT_PATTERNS

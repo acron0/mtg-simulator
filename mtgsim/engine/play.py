@@ -97,6 +97,8 @@ class PlayMixin:
             else:
                 card.origin = (actual, kind, alt)
             base = actual
+        from ..spell_grants import apply as spell_grants      # "<kind> spells you cast have cascade" (#633)
+        card = spell_grants(self, p, card, base, kind)
         effects = [] if card.is_permanent else list(card.spell_effects)
         targets = list(targets or [])
         targets += [None] * (len(effects) - len(targets))

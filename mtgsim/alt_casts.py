@@ -84,7 +84,8 @@ def parse_line(line: str, st) -> bool:
     if m:
         st.alt_costs.append(AltCost("suspend", parse_mana_cost(m[2]), counters=int(m[1])))
         return True
-    return False
+    from .spell_grants import parse_line as spell_grant_line     # "<kind> spells you cast have convoke" (#633)
+    return spell_grant_line(line, st)
 
 
 def variants(game, p, card) -> list:

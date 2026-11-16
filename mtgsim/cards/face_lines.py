@@ -523,6 +523,10 @@ def _face_land_and_mana_lines(st, line):
         if re.fullmatch(r"~ enters(?: the battlefield)? tapped\.", line):
             enters_tapped = True
             return None
+        if re.fullmatch(r"~ enters(?: the battlefield)? tapped and doesn't untap during your untap step\.", line):
+            enters_tapped = True        # Traxos: the untap lock is the plain no_untap flag
+            extra["no_untap"] = True
+            return None
         if re.fullmatch(r"~ enters(?: the battlefield)? tapped unless you control two or more other lands\.", line):
             extra["tapped_condition"] = "unless_2_lands"
             return None

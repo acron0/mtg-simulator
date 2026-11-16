@@ -396,9 +396,13 @@ class EffectsMixin:
 
     def discard_card(self, p: Player, card: CardDef):
         from ..madness import after_discard, discard_destination
-        card = self.move_card(card, p.hand, discard_destination(self, p, card), reason="discard")
-        p.discarded_cards.append(card)
-        after_discard(self, p, card)
+        from ..cx_discard_bf import onto_battlefield         # "... causes you to discard this card, put it onto the battlefield" (#628)
+        if onto_battlefield(self, p, card):
+            p.discarded_cards.append(card)
+        else:
+            card = self.move_card(card, p.hand, discard_destination(self, p, card), reason="discard")
+            p.discarded_cards.append(card)
+            after_discard(self, p, card)
         self.fire(p, "you_discard")
         # The subject lets typed listeners ("whenever an opponent discards a creature/land card",
         # Waste Not) filter on the discarded card's types.
@@ -516,6 +520,8 @@ class EffectsMixin:
             if left:
                 pl.graveyard.left = []
                 self.fire(pl, "gy_leave", subject=left)
+        if getattr(self, "_mid_resolution", 0):
+            return      # CR 704.3: not between the effects of a resolving item; resolve_top checks once it is done (#682)
         changed = True
         while changed:
             changed = False

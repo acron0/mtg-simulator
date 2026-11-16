@@ -608,12 +608,19 @@ def flip_coin(game, p, eff, item, target=None, **_):
             item.gate_paid = won != bool(eff.data.get("on_lose"))
             item.flip_result = won           # conds "flip_won" / "flip_lost" (chance_templates._fold_seq)
         game.log(f"flips a coin and {'wins' if won else 'loses'}", p)
-        if won:
+        if won and not eff.data.get("no_call"):      # an uncalled coin ("flip two coins", heads/tails) wins nothing
             game.fire(p, "you_win_flip")
         if eff.data.get("until_lose") and not won:
             break
     if item is not None:
         item.flips_won, item.flips_lost = wins, losses
+
+
+@kind("flip_each")
+def flip_each(game, p, eff, item, **_):
+    """One coin per player or per creature; tails effects for each tails (chance_each.py)."""
+    from ...chance_each import resolve
+    resolve(game, p, eff, item)
 
 
 _CONJURE_DB = []

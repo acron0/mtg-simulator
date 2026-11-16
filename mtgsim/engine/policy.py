@@ -148,6 +148,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return choose(game, me, eff)
     if k in ('graveyard_exile_all', 'graveyard_exile_choice'):
         return opp
+    if k == 'give_control_choice':      # a cost: give away the least valuable permanent that fits
+        return min(mine, key=perm_value, default=None)
     if k == 'adapt_exception':
         return max(mine, key=perm_value, default=None)
     if k in ('control_permanent', 'opponent_exile'):
@@ -231,7 +233,7 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
         return max(theirs, key=perm_value, default=None)
     if k == "shrink":
         return max(theirs, key=perm_value, default=None)
-    if k in ("destroy", "debuff_one", "bounce"):
+    if k in ("destroy", "debuff_one", "bounce", "tuck_perm", "tuck_top", "cx_tuck"):     # tucks: removal too (#716)
         if k == "debuff_one":
             theirs = [x for x in theirs if x.toughness <= eff.amount2]
         theirs = [x for x in theirs if not (k == "destroy" and x.has("indestructible"))]

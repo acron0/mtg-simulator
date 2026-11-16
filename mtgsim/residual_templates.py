@@ -10,11 +10,43 @@ SUBS = []
 NUMBER = r'(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)'
 
 
+def _sizes(game):
+    players = game.players
+    if len(players) == 2:       # the common case, without a generator (millions of calls per game: #698)
+        return len(players[0].battlefield), len(players[1].battlefield)
+    return tuple(len(p.battlefield) for p in players)
+
+
+def _source_index(game):
+    sizes = _sizes(game)
+    cached = getattr(game, '_residual_source_index', None)
+    if cached is None or cached[0] != sizes:
+        sources(game, '')
+        cached = game._residual_source_index
+    return cached[1]
+
+
+_FIELDS = ("static_keyword_grants", "keyword_sub", "team_keywords", "counter_team_keywords",
+           "granted_attack_keywords")
+
+
+def field_sources(game, field):
+    """The battlefield permanents whose card may have a non-empty ``field`` (one of _FIELDS), in battlefield order:
+    a scan over them finds what a scan over every permanent would (#698)."""
+    return [x for x in _source_index(game).get("@" + field, ()) if x in x.controller.battlefield]
+
+
+def has_source_key(game, key) -> bool:
+    """Whether any permanent on the battlefield could carry advanced_rules[key] (the cached index, a superset):
+    False lets a hot path skip a scan that would find nothing (#698)."""
+    return key in _source_index(game)
+
+
 def sources(game, key):
     # Index possible providers, then check live text/suppression on every lookup.
     # Card setters and zone boundaries invalidate it; lengths also cover fixture
     # list appends/removals. Unrelated permanents need no ability checks.
-    sizes = tuple(len(p.battlefield) for p in game.players)
+    sizes = _sizes(game)
     cached = getattr(game, '_residual_source_index', None)
     if cached is None or cached[0] != sizes:
         index = {}
@@ -23,6 +55,9 @@ def sources(game, key):
                 keys = permanent.card.advanced_rules.keys() | permanent.copiable_card.advanced_rules.keys()
                 for name in keys:
                     index.setdefault(name, []).append(permanent)
+                for field in _FIELDS:       # keyword-giving CardDef fields Permanent.has scans for (#698)
+                    if getattr(permanent.card, field, None) or getattr(permanent.copiable_card, field, None):
+                        index.setdefault("@" + field, []).append(permanent)
         cached = sizes, index
         game._residual_source_index = cached
     return [x for x in cached[1].get(key, ()) if x in x.controller.battlefield and
@@ -133,7 +168,8 @@ def parse_line(line, st):
     if m:
         st.extra.setdefault('advanced_rules', {})['miracle'] = parse_mana_cost(m[1])
         return True
-    return False
+    from .entry_statics import parse_line as entry_static_line     # "<group> enter tapped / with counters" (#630)
+    return entry_static_line(line, st)
 
 
 def parse_effect(text):
@@ -365,6 +401,10 @@ def effect_value(game, player, effect, target):
                  if not d.get('desc') or card_matches(c, d['desc'])]
         mine = sum(1 for c in cards if c in player.graveyard or c in player.hand)
         return min(1, len(cards)) if effect.kind == 'graveyard_exile_choice' else len(cards) - 2 * mine
+    if effect.kind in ('give_control_choice', 'give_control_all'):     # giving permanents away is a cost
+        if effect.kind == 'give_control_choice':
+            return -perm_value(target) if isinstance(target, Permanent) else -5
+        return -sum(perm_value(x) for x in player.battlefield if matches(game, x, effect.data['selector'], player))
     if effect.kind == 'adapt':
         src = getattr(game.target_source, 'source', game.target_source)
         return effect.amount if isinstance(src, Permanent) and (not src.p1 or getattr(src, 'adapt_exceptions', 0)) and permanent_counter_allowed(src, '+1/+1') else 0

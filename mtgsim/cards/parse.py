@@ -732,6 +732,10 @@ def _parse_face(data: dict) -> CardDef:
 
     from ..cx_multi_target import unpaid_x
     unsupported += unpaid_x(cost, spell, modes, triggers, activated, loyalty_abilities, etb, alt_costs, extra)  # #312
+    from ..cx_chosen_type import unbound, hostile
+    unsupported += unbound(oracle, extra, spell, modes, triggers, activated, loyalty_abilities, etb, extra)  # #627
+    if extra.get("choose_type") == "creature" and hostile(oracle):
+        extra.setdefault("advanced_rules", {})["choose_opp_type"] = True
     if data.get("mana_cost") == "" and "Land" not in types:     # no mana cost at all (not {0}): CR 118.6
         extra.setdefault("advanced_rules", {})["no_mana_cost"] = True
     return CardDef(
@@ -852,6 +856,11 @@ def _parse_ability_cost(text: str):
     return mana, extra
 
 
+def _self_it_act(cost_text, body):
+    from ..self_trigger_it import activated_it
+    return activated_it(cost_text, body)
+
+
 def _parse_ability(line: str, approximations: list):
     """A general activated ability ("{2}, {T}: Draw a card."), or None.
 
@@ -900,6 +909,8 @@ def _parse_ability(line: str, approximations: list):
                          max_per_turn=limit, modes=modal.Modes(spec=head[0]), any_player=any_player,
                          restrictions=restrictions, once_game=once_game)
     effects, bad = _parse_effects(body)
+    if bad and _self_it_act(m[1], body):         # "...: It deals 7 damage ..." names the source (#320)
+        effects, bad = _parse_effects(_self_it_act(m[1], body))
     if bad or not effects:
         return None
     if cost[1].get("remove_counter_count") == "x" and not (

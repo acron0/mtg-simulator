@@ -161,6 +161,9 @@ class BattlefieldMixin:
                     for t in c.subtypes:
                         types[t] = types.get(t, 0) + 1
             perm.chosen_type = max(types, key=types.get, default="")
+            if card.advanced_rules.get("choose_opp_type"):       # "creatures of the chosen type get -1/-1" (#627)
+                from ..cx_chosen_type import pick_hostile
+                perm.chosen_type = pick_hostile(self, p) or perm.chosen_type
         elif card.choose_type == "land":
             # Shimmer: "As ~ enters, choose a land type. Each land of the chosen type has
             # phasing." The default pick is the opponent's most common basic land type.
@@ -211,7 +214,9 @@ class BattlefieldMixin:
         if card.etb_named_counters:
             n = x if card.etb_named_counters[1] == -1 else card.etb_named_counters[1]    # -1: "enters with X ..."
             if n:
-                perm.counters[card.etb_named_counters[0]] = n
+                from ..cx_counter_choice import pick     # "your choice of a flying counter or a ... counter" (#627)
+                for name in pick(perm, card.etb_named_counters[0]):
+                    perm.counters[name] = n
         roll = as_enters_roll(card, perm.entered_x)
         if roll is not None:
             sides, n, kind = roll
@@ -224,7 +229,8 @@ class BattlefieldMixin:
         for kind, n in (counters or {}).items():
             perm.counters[kind] = perm.counters.get(kind, 0) + n
         from ..residual_templates import tapped_by_opponent
-        perm.tapped |= tapped or tapped_by_opponent(self, perm)
+        from ..entry_statics import tapped as entry_tapped          # "<group> enter tapped" (#630)
+        perm.tapped |= tapped or tapped_by_opponent(self, perm) or entry_tapped(self, perm)
         p.battlefield.append(perm)
         from ..batch1_templates import soulbond_pair
         soulbond_pair(self, p, perm)
@@ -253,6 +259,8 @@ class BattlefieldMixin:
                 grant = source.card.entry_counter_grant
                 if grant and not source.silenced and not (grant[2] and source is perm):
                     perm.counters[grant[0]] = perm.counters.get(grant[0], 0) + grant[1]
+        from ..entry_statics import counters as entry_counters      # "<group> enter with an additional counter" (#630)
+        entry_counters(self, p, perm)
         if tapped_attacking:
             perm.tapped = True
             self.attackers.append(perm)

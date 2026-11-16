@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from . import auras as _auras
 
 EFFECT_PATTERNS = []
 SUBS = []
@@ -44,10 +45,14 @@ def parse_line(line, state):
     if match:
         state.extra.setdefault('advanced_rules', {})[match[0]] = match[1]
         return True
-    if line.startswith('Enchant non-') and 'Aura' in state.type_line:
+    if line.startswith('Enchant ') and 'Aura' in state.type_line and not re.search(
+            r"\b(?:player|opponent|graveyard|hand|library|exile)\b", line) and not state.extra.get('aura') \
+            and not _auras._ENCHANT.fullmatch(line):
+        # "Enchant non-Human creature", "Enchant red or green creature", "Enchant tapped creature" (#633 residue):
+        # the noun phrase is a battlefield selector that must still hold while the Aura stays attached
         from .permanent_templates import selector
-        spec = selector(line[8:])
-        if spec is not None:
+        spec = _color_creature(line[8:]) or selector(line[8:])
+        if spec is not None and 'cx_desc' not in spec:
             state.extra['aura'] = line[8:]
             state.extra.setdefault('advanced_rules', {})['aura_selector'] = spec
             return True
@@ -59,6 +64,20 @@ def parse_line(line, state):
             state.triggers.append(Trigger('etb', effects, data={'enters_untapped': True}))
             return True
     return False
+
+
+_COLOR_LETTER = {'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'}
+
+
+def _color_creature(text):
+    """"red or green creature" / "nonblack creature": the colour words selector() can't read."""
+    m = re.fullmatch(r'((?:white|blue|black|red|green)(?: or (?:white|blue|black|red|green))+) creature', text)
+    if m:
+        return {'colors_any': [_COLOR_LETTER[w] for w in m[1].split(' or ')], 'types_all': ['creature']}
+    m = re.fullmatch(r'non-?(white|blue|black|red|green) creature', text)
+    if m:
+        return {'not_colors': [_COLOR_LETTER[m[1]]], 'types_all': ['creature']}
+    return None
 
 
 def parse_effect(text, previous):

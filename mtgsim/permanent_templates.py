@@ -195,6 +195,15 @@ def selector(text, *, plural=False):
         result['other'] = True
         text = text.split(' ', 1)[1]
     text = re.sub(r'^(?:a|an) ', '', text, flags=re.I)
+    # "creatures you control that entered this turn", "each creature that entered the battlefield under your control
+    # this turn" (#327): the permanents whose current object entered on this turn (Permanent.entered_turn)
+    # ("entered under your control" would need the controller it entered under, which isn't recorded: refused)
+    entered = re.search(r' that entered(?: the battlefield)?( under your control)? this turn$', text, re.I)
+    if entered:
+        if entered[1]:
+            return None
+        result['entered_turn'] = True
+        text = text[:entered.start()]
     # "target permanent other than ~" (#645): the source itself is excluded, like "another"
     other = re.search(r' other than (?:~|this (?:creature|permanent|artifact|enchantment|land))$', text, re.I)
     if other:
@@ -409,6 +418,8 @@ def matches(game, permanent, spec, controller, source=None):
         name, present = spec['keyword']
         if permanent.has(name) != present:
             return False
+    if spec.get('entered_turn') and getattr(permanent, 'entered_turn', -1) != game.turn:
+        return False
     if spec.get('tough_gt_power') and not permanent.toughness > permanent.power:
         return False
     if 'stat' in spec:

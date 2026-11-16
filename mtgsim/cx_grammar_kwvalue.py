@@ -41,6 +41,9 @@ def has_valued(m, clause):
     kws = valued_list(m[1])
     if not kws or clause.duration != "static":
         return None
+    sel = ((clause.subject.group or {}).get("selector") or {}) if clause.subject else {}
+    if (sel.get("counter") or ("x",))[0] in ("a", "an", "any"):
+        return None         # "with a counter on them": no counter kind the selector checks yet (as static_ward)
     return [Part("grant", data={"keyword": k}) for k in kws]
 
 

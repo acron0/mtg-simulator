@@ -24,7 +24,9 @@ class Parsing(unittest.TestCase):
     def test_lines(self):
         for c in (GUARDIAN, VANGUARD, COMMUNION, INJECTOR, RESEARCH):
             self.assertEqual(c.unsupported, [], c.name)
-        self.assertEqual(GUARDIAN.static_keyword_grants[0][1], ("ward:2",))
+        # main's static_ward reader (permanent_templates) takes the plain "<group> you control have ward {N}" first
+        self.assertTrue(GUARDIAN.advanced_rules.get("static_ward") or
+                        GUARDIAN.static_keyword_grants[0][1] == ("ward:2",))
         self.assertIn("toxic:2", COMMUNION.equip_keywords)
 
     def test_temporary(self):
@@ -34,7 +36,7 @@ class Parsing(unittest.TestCase):
 
     def test_refusals(self):
         for text in ("Other artifacts you control have ward—Pay 2 life.",          # a non-mana ward cost
-                     "Other creatures you control have afflict 2.",                # not implemented with a number
+                     "Creatures you control with a counter on them have ward {1}.",   # no counter kind (yet)
                      "Creatures you control have ward {X}."):
             c = card("Test Refused", "{3}", "Artifact", text)
             self.assertTrue(c.unsupported, text)
@@ -126,11 +128,13 @@ class RealCards(unittest.TestCase):
         from mtgsim.carddb import CardDB
         db = CardDB(offline=True)
         for name in ("Coppercoat Vanguard", "Necrogen Communion", "Bronze Guardian", "Combat Research", "K-9, Mark I",
-                     "Karumonix, the Rat King", "Prosthetic Injector", "Matt Murdock, Justice Seeker",
+                     "Karumonix, the Rat King", "Prosthetic Injector",
                      "Gold-Forged Thopteryx", "Star Whale", "Flowering of the White Tree", "Elder Owyn Lyons",
                      "Storvald, Frost Giant Jarl"):
             cov = card_coverage(db.get(name))
             self.assertEqual(cov.status, "full", (name, cov.ignored))
+        # Matt Murdock ("with a counter on it has ward {1}") waits for #700's any-kind counter selector
+        self.assertEqual(card_coverage(db.get("Matt Murdock, Justice Seeker")).status, "partial")
 
 
 if __name__ == "__main__":

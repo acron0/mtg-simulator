@@ -101,6 +101,7 @@ class BattlefieldMixin:
             perm.mana_spent = cast[2]
             perm.mana_colors = frozenset(getattr(self, "_entry_mana_colors", ()))     # converge
             perm.mana_by_color = dict(getattr(self, "_entry_mana_by_color", {}))
+            perm.mana_from = dict(getattr(self, "_entry_mana_from", {}))
             perm.was_cast = True       # already as it enters ("if it wasn't cast", Freestrider Commando)
         others = sum(x.card.is_land for x in p.battlefield)
         cond = card.tapped_condition

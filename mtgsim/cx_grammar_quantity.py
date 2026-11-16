@@ -87,6 +87,11 @@ def quantity(text: str):
         return ("cxq", "opponents")
     if low in ("the number of colors of mana spent to cast ~", "the number of colors of mana spent to cast this spell"):
         return ("cxq", "converge")
+    m = re.fullmatch(r"the (?:number|amount) of mana from (.+?) (?:that was )?spent to cast (?:~|this spell|it)", low)
+    if m:       # "for each mana from a Treasure spent to cast ~" (Spoils of the Hunt, Cataclysmic Prospecting)
+        from .cx_spent import source_kind
+        kind = source_kind(m[1])
+        return ("cxq", "mana_from", kind) if kind else None
     if low in ("the amount of mana spent to cast ~", "the amount of mana spent to cast this spell"):
         return ("cxq", "mana_amount")
     if low == "the number of cards you've drawn this turn":
@@ -220,6 +225,10 @@ def value(game, p, spec, item, prev) -> int:
         if item is not None and getattr(item, "is_spell", False):
             return len(getattr(item, "mana_colors", ()))
         return len(getattr(_source(item), "mana_colors", ()))
+    if kind == "mana_from":     # the spell, else a trigger's spell ("Whenever you cast ..."), else the permanent
+        ctx = getattr(item, "context", None)
+        obj = item if getattr(item, "is_spell", False) else ctx if getattr(ctx, "is_spell", False) else _source(item)
+        return getattr(obj, "mana_from", {}).get(spec[2], 0) if obj is not None and getattr(obj, "was_cast", True) else 0
     if kind == "mana_amount":
         return spent_amount(item if item is not None and getattr(item, "is_spell", False) else _source(item))
     if kind == "drawn":

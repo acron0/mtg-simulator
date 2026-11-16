@@ -233,6 +233,9 @@ def _quantity(text: str):
         return ("cxq", "converge")          # converge: the spell's own payment (cx_grammar_quantity)
     if re.fullmatch(r"the amount of mana spent to cast ~", text, re.I):
         return ("cxq", "mana_amount")
+    if re.fullmatch(r"mana from .+? spent to cast (?:~|it)", text, re.I):   # Marut, Bat Colony
+        from .cx_grammar_quantity import quantity
+        return quantity("the number of " + text)
     if re.fullmatch(r"the amount of mana spent to cast that spell", text, re.I):
         return ("spell", "mana_spent")      # a cast trigger's spell (Game.x_quantity)
     m = re.fullmatch(r"your devotion to (white|blue|black|red|green)(?: and (white|blue|black|red|green))?", text, re.I)

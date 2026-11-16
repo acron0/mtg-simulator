@@ -409,6 +409,9 @@ def _mode_value(game: Game, me: Player, effects: list) -> float:
                 if v <= 0 and all(x.kind in ("pay_gate", "hand_to_battlefield") for x in effects):
                     return -1          # nothing in hand it could put: don't spend the activation on it alone
                 total += v
+            elif k == "hand_free_cast":       # nothing in hand to cast: not worth an activation (#625)
+                from ..free_cast import value as free_value
+                total += free_value(me, e) or -1
             else:
                 total += 1
         return total

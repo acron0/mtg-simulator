@@ -41,6 +41,9 @@ def _body(text: str):
         return [Effect("token", n, target=_SAME)] if n and not m[2] else None
     if re.fullmatch(r"(?:~|it|this spell) deals twice X damage to that (?:permanent|creature|player)", text, re.I):
         return [Effect("damage", target=_SAME, data={"x": True, "instead_multiplier": 2})]
+    if re.fullmatch(r"return that card from (?:your|its owner's) graveyard to the battlefield", text, re.I):
+        # Stitch Together: the same graveyard return, to the battlefield instead of the hand
+        return [Effect("gy_move", target=_SAME, data={"dest": "bf", "instead_amount": True})]
     if re.fullmatch(r"that player mills twice that many cards", text, re.I):
         return [Effect("mill", target=_SAME, data={"instead_amount": True, "instead_multiplier": 2})]
     m = re.fullmatch(r"(?:those creatures|they) get ([+-]\d+)/([+-]\d+) until end of turn", text, re.I)
@@ -378,6 +381,10 @@ def _cost(text: str):
     m = re.fullmatch(r"pays? ((?:\{[\dWUBRGC]\})+)", text, re.I)
     if m:
         return {"mana": parse_mana_cost(m[1].upper())}
+    m = re.fullmatch(r"pays? ((?:\{[\dWUBRGC]\})+) for each (.+)", text, re.I)
+    if m:                       # "pay {1} for each card in your hand": that much mana per counted thing (#330)
+        spec = _per_spec(m[2])
+        return {"mana": parse_mana_cost(m[1].upper()), "per": spec[0], "it": spec[1]} if spec else None
     m = re.fullmatch(r"pays? (\d+) life", text, re.I)
     if m:
         return {"life": int(m[1])}
@@ -396,6 +403,22 @@ def _cost(text: str):
         spec = _filter(m[1], plural=False) if m[1] else {}
         return {"discard": spec} if spec is not None else None
     return _counted_cost(text)
+
+
+def _per_spec(q: str):
+    """(quantity spec, refers to "it") for "for each <q>", from the source controller's side, or None. "On it"
+    is read as the source; unless() keeps that only when the gated effects act on the source itself."""
+    from .cards.clauses import _xq
+    it = bool(re.search(r"\bon it$", q))
+    q = re.sub(r"\bon (?:it|this \w+)$", "on ~", q.strip())
+    words = q.split()
+    plurals = [" ".join(words[:i] + [words[i] + "s"] + words[i + 1:]) for i in range(len(words))
+               if re.fullmatch(r"[a-z+/1-]*[a-rt-z]", words[i], re.I)]     # the head noun, wherever it is
+    for cand in ["the number of " + x for x in [q] + plurals]:
+        spec = _xq(cand)
+        if spec is not None:
+            return spec, it
+    return None
 
 
 _COUNT = r"(a|an|another|one|two|three|four|five)"
@@ -481,6 +504,8 @@ def unless(m, inner):
         cond = _if_cond(rest)
         return [dataclasses.replace(e, cond=_both(e.cond, _negate(cond))) for e in effects] if cond else None
     payer = _PAYERS[words]
+    if any(c.get("it") for c in costs) and not all(e.kind in _HURTS_CONTROLLER for e in effects):
+        return None             # "for each counter on it": "it" is the source only when B acts on the source
     if payer == "they" and len(effects) == 1:
         each = _each_gate(effects[0], costs)
         if each:

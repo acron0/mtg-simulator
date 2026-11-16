@@ -400,6 +400,7 @@ class StackMixin:
         item = self.stack.pop()
         p = item.controller
         self.last_dealt = 0          # "the damage dealt this way" only counts damage from this resolution
+        self.excess_dealt = 0        # "excess damage ... this way" (excess_damage.py) likewise
         if item.intervening_if and not self.check_cond(p, Effect("condition", cond=item.intervening_if), item, None):
             self.log(f"{item} does not resolve (intervening condition is false)", p)
             self.state_based_actions()
@@ -428,6 +429,7 @@ class StackMixin:
                     return
             self._entry_mana_colors = getattr(item, "mana_colors", set())
             self._entry_mana_by_color = getattr(item, "mana_by_color", {})
+            self._entry_mana_from = getattr(item, "mana_from", {})
             self._entry_cast = (kind == "kicker" or getattr(item, "kicks", 0) > 0,
                                 bool(getattr(item, "cast_from_hand", False)), getattr(item, "mana_spent", 0))
             if kind in ("disturb", "room_right", "siege"):   # cast transformed: its back face enters (a Room's right door)
@@ -445,6 +447,7 @@ class StackMixin:
                 perm.curse_target = self.opponent(p)
             self._entry_mana_colors = set()
             self._entry_mana_by_color = {}
+            self._entry_mana_from = {}
             self._spent = ""
             if kind in ("disguise", "morph", "megamorph"):
                 perm.hidden = base

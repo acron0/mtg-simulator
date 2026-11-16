@@ -305,6 +305,10 @@ class EffectsMixin:
         perm.front.last_zone = "battlefield"
         perm.front.zone = None
         controller.perm_left_turn = True
+        # what was attached as it left: their "when enchanted / equipped creature dies / leaves" triggers look back
+        # in time (CR 603.10a) though the Auras are put into the graveyard next (cx_events.observe, #782)
+        perm.left_attachments = list(perm.auras) + [x for pl in self.players for x in pl.battlefield
+                                                    if x.attached_to is perm]
         if perm.card.aura:
             auras.detach(perm)
         perm.attached_to = None

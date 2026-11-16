@@ -599,8 +599,12 @@ def flip_coin(game, p, eff, item, target=None, **_):
     if eff.target == "that_player" and isinstance(target, Player):
         p = target          # "that player flips a coin. If they lose the flip, ..." (Planar Chaos)
     n = getattr(item, "x", 0) if eff.data.get("count_x") else eff.amount if eff.data.get("count") else 1
+    limit = None
+    if eff.data.get("chosen_count"):     # "Choose a number. Flip a coin that many times or until you lose a flip"
+        from ...chance_each import choose_count
+        limit = (getattr(p.ai, "choose_flip_count", None) or choose_count)(game, p, item)
     wins = losses = 0
-    while eff.data.get("until_lose") or wins + losses < n:
+    while (eff.data.get("until_lose") or wins + losses < n) and (limit is None or wins + losses < limit):
         won = toss(game, p)
         wins += int(won)
         losses += int(not won)
@@ -612,6 +616,10 @@ def flip_coin(game, p, eff, item, target=None, **_):
             game.fire(p, "you_win_flip")
         if eff.data.get("until_lose") and not won:
             break
+        if eff.data.get("may_stop"):       # "... or choose to stop flipping" (Fiery Gambit)
+            from ...chance_each import choose_stop
+            if (getattr(p.ai, "choose_flip_stop", None) or choose_stop)(game, p, wins, item):
+                break
     if item is not None:
         item.flips_won, item.flips_lost = wins, losses
 

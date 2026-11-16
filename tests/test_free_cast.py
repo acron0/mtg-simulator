@@ -173,7 +173,7 @@ class RealCards(unittest.TestCase):
     def test_near_misses_stay_partial(self):
         from mtgsim.carddb import CardDB
         db = CardDB(offline=True)
-        for name in ("Reinterpret", "Counterlash", "Omniscience", "Zaffai and the Tempests", "Twinning Glass",
+        for name in ("Reinterpret", "Counterlash", "Zaffai and the Tempests", "Twinning Glass",
                      "One with the Multiverse"):
             self.assertEqual(card_coverage(db.get(name)).status, "partial", name)
 

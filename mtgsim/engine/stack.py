@@ -560,6 +560,11 @@ class StackMixin:
                     self.resolve(p, eff, tgt, item, prev)
                 finally:
                     self._mid_resolution -= 1
+                if eff.target == "self" and prev is None and getattr(item, "context", None) is None \
+                        and isinstance(item.source, Permanent):
+                    # "{3}: Tap ~. It gains indestructible ...": with no earlier object and nothing the ability is
+                    # about (a trigger's subject or spell is its own "that ..."), "it" after an effect on ~ is ~ (#810)
+                    prev = item.source
                 just_made = self._last_token if getattr(self, "_token_serial", 0) == serial + 1 else None
                 if self.over:
                     break

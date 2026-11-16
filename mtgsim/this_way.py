@@ -200,6 +200,8 @@ def parse_quantity(text: str):
         spec = {}
     else:
         c = re.fullmatch(r"(.+?) cards", words, re.I)
+        if c is not None and verb in ("destroyed", "sacrificed"):
+            return None     # permanents are destroyed, not cards: "creature cards destroyed this way" is malformed
         if c is None:
             if verb != "destroyed":
                 return None

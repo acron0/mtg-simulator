@@ -58,6 +58,12 @@ def life_total(game, p, eff, target, opp, **_):
     players = {"you": [p], "each": list(game.players), "opponents": [opp]}.get(who) or \
         ([target] if isinstance(target, Player) else [])
     if op == "exchange":
+        if eff.data.get("both"):        # "two target players": you are the other target (#629)
+            from ...batch1_templates import player_targetable
+            if not player_targetable(game, p, p):
+                return
+        if eff.data.get("may") and players and players[0].life <= p.life:
+            return                      # "you may": only exchanged when it gains you life
         if players and players[0] is not p:
             a, b = p.life, players[0].life
             game.change_life(p, b - a, "exchange life totals")

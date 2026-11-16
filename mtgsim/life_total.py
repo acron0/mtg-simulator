@@ -46,6 +46,16 @@ def _exchange(m):
                   data={"op": "exchange", "who": "target"})
 
 
+def _exchange_more(m):
+    """"[You may] exchange life totals with target opponent" (Mister Negative) and "[you may have] two target players
+    exchange life totals" (Soul Conduit, Axis of Mortality): with two players the two targets are you and the other
+    player, so you must be a legal target too ("both"); "you may": only when it gains you life ("may")."""
+    from .cards.model import Effect
+    both = m["two"] is not None
+    return Effect("life_total", target="player", filter="" if both else ("opp" if m["who"] == "opponent" else ""),
+                  data={"op": "exchange", "who": "target", "both": both, "may": bool(m["may"])})
+
+
 def _loses(m):
     from .cards.model import Effect
     return Effect("player_loses", target="player", filter="opp" if m[1].lower() == "opponent" else "")
@@ -66,6 +76,8 @@ EFFECT_PATTERNS = [
      r"nine|ten|twenty)", _become),
     (r"(each player's) life total becomes (the (?:lowest|highest) life total among all players)", _become),
     (r"exchange life totals with target (player|opponent)", _exchange),
+    (r"(?P<may>you may (?:have )?)?(?:exchange life totals with target (?P<who>player|opponent)|"
+     r"(?P<two>two target players exchange life totals))", _exchange_more),
     (r"target (player|opponent) loses the game", _loses),
     (r"(that player|its controller|defending player) loses the game", _loses_ref),
 ]

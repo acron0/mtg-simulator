@@ -43,7 +43,37 @@ def _move(m):
     return m[0] if second is None else f"{first} {second}"
 
 
+def _move_stat(m):
+    """"<effect on target ...> if its mana value is less than or equal to <spent quantity>": checked against the
+    effect's own target as it resolves."""
+    return _lead(m[1], m[2]) or m[0]
+
+
 SUBS = [
+    (re.compile(r"(?:^|(?<=\. ))((?:(?! if )[^.])*?\btarget\b(?:(?! if )[^.])*?) if (its (?:mana value|power|toughness) is "
+                r"less than or equal to [^.]+? spent to cast ~)\.", re.I), _move_stat),
     (re.compile(r"(?:^|(?<=\. ))([A-Z~](?:(?! if )[^.])*?) if (" + _SPENT + r")(?:,? and ((?:(?! if )[^.])+?) if (" + _SPENT + r"))?\.",
                 re.I), _move),
 ]
+
+
+def fitting_targets(game, me, eff, legal):
+    """AI hint for "... target ... if its mana value is less than or equal to the number of colors of mana spent
+    to cast ~" (Prismatic Ending): targets are chosen before the payment, so prefer the ones the converge count
+    can reach (colours the caster's untapped mana sources make, at most the spell's mana value). The legality
+    of a target is unchanged; when none fits, every legal target stays a choice."""
+    import json
+    if not eff.cond.startswith('lib:["tgt_stat_le"'):
+        return legal
+    stat, spec = json.loads(eff.cond[4:])[1:]
+    if spec != ["cxq", "converge"]:
+        return legal
+    from .engine.mana import _mana_of
+    from .engine.state import Permanent
+    colours = {c for s in me.battlefield if not s.tapped and s.card.produces for c in _mana_of(s)} & set("WUBRG")
+    card = getattr(game, "target_source", None)
+    card = getattr(card, "card", card)
+    bound = min(len(colours), int(getattr(card, "cmc", 5) or 5))
+    fit = [x for x in legal if isinstance(x, Permanent)
+           and (x.card.cmc if stat == "mana value" else getattr(x, stat, 0)) <= bound]
+    return fit or legal

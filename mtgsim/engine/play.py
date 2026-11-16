@@ -122,6 +122,7 @@ class PlayMixin:
         if card.advanced_rules.get("strive"):        # "costs {1}{W} more for each target beyond the first"
             from ..cx_multi_target import strive_cost
             cost, targets = strive_cost(self, p, card, effects, targets, cost)
+        x_off = getattr(self, "x_reduction", 0)        # reduction the generic part couldn't use: it pays toward X (#512)
         x_fixed = None
         if "X" in card.mana_cost and any(e.data.get("count_x") for e in effects):   # "Tap X target creatures" (#312)
             from ..cx_multi_target import x_targets_cost
@@ -133,12 +134,12 @@ class PlayMixin:
         x = 0
         if assisted and "X" in card.mana_cost:
             for n in range(1, 21):
-                trial = dict(cost, generic=cost.get("generic", 0) + n * card.mana_cost["X"])
+                trial = dict(cost, generic=cost.get("generic", 0) + max(0, n * card.mana_cost["X"] - x_off))
                 remaining, tapped, _ = self.assist_payment(p, card, trial)
                 if costs.spell_plan(self, p, card, remaining, exclude=convoked + tapped) is None:
                     break
                 x = n
-            cost["generic"] = cost.get("generic", 0) + x * card.mana_cost["X"]
+            cost["generic"] = cost.get("generic", 0) + max(0, x * card.mana_cost["X"] - x_off)
         cost, improvised, delved = self.assist_payment(p, card, cost) if assisted else (cost, [], [])
         from .. import cx_spell_costs           # "As an additional cost to cast ~, ..." (#342)
         add_cost = cx_spell_costs.for_cast(self, p, card, targets)
@@ -165,10 +166,10 @@ class PlayMixin:
         elif "X" in card.mana_cost and not assisted:     # X: as much as the remaining mana allows
             per_x = card.mana_cost["X"] or 1           # {X}{X}: each X costs two mana (#531)
             while x < 20 and payable([s for s in self.mana_sources(p, spell=card) if s not in plan.exclude],
-                                     {"generic": (x + 1) * per_x}):
+                                     {"generic": max(0, (x + 1) * per_x - x_off)}):
                 x += 1
-            if x:
-                payment += self.pay(p, {"generic": x * per_x}, spell=card, exclude_many=plan.exclude)
+            if x * per_x > x_off:
+                payment += self.pay(p, {"generic": x * per_x - x_off}, spell=card, exclude_many=plan.exclude)
         kicks = 0
         multipay = card.advanced_rules.get("multipay")
         if multipay is not None and kind == "":

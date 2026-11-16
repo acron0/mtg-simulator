@@ -81,7 +81,9 @@ def _parse_effects(text: str, opts: bool = False):
             continue
         from ..cx_exile_play import parse_rider as exile_play_rider        # "for as long as it remains exiled"
         from ..cx_replace_zones import parse_rider as leave_exile_rider      # "exile it instead of ... anywhere else"
+        from ..prevent_next_templates import parse_rider as instead_rider     # "If it's a green creature, ... instead"
         if batch1_rider(s, effects) or emerge_rider(s, effects) or shield_rider(s, effects) or exile_play_rider(s, effects) or \
+                instead_rider(s, effects) or \
                 leave_exile_rider(s, effects) or \
                 delayed_rider(s, effects) or watch_rider(s, effects) or spell_rider(s, effects):
             continue
@@ -645,7 +647,9 @@ def _parse_face(data: dict) -> CardDef:
                 continue
             if re.search(r"\binstead\b", k):
                 from ..cx_grammar_cond import kicked_instead
-                if not _kicker_instead(kicked_effects, k) and not kicked_instead(kicked_effects, k):
+                from ..prevent_next_templates import kicked_instead as shield_instead      # Orim's Touch (#333)
+                if not _kicker_instead(kicked_effects, k) and not kicked_instead(kicked_effects, k) and \
+                        not shield_instead(kicked_effects, k):
                     unsupported.append(f"if kicked: {k}")
                 continue
             effs, bad = _parse_effects(k)

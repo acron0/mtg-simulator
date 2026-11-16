@@ -989,6 +989,9 @@ def _face_cost_and_static_lines(st, line):
         if m:                                    # a state trigger: sacrificed while you control none
             extra["needs_land"] = {"lands": "Land", "Plains": "Plains"}.get(m[1], m[1][:-1])
             return None
+        from .. import cx_delayed as _cx_delayed
+        if _cx_delayed.flash_line(line, st):                  # flash Auras sacrificed at cleanup if cast as an instant
+            return None
         from .. import cx_trig_state as _cx_trig_state
         if _cx_trig_state.parse_line(line, extra):        # "When you control no other creatures, sacrifice ~."
             return None
@@ -1268,4 +1271,5 @@ from .. import cx_grammar  # noqa: E402
 from ..cx_night_flash import parse_line as _night_flash_line  # noqa: E402
 from ..cx_night_aura import parse_line as _night_aura_line  # noqa: E402
 from ..named_cards import parse_line as _named_cards_line  # noqa: E402
-_FACE_LINE_PARSERS = (_named_cards_line, _night_aura_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)
+from ..cx_flash_perm import parse_line as _flash_perm_line  # noqa: E402
+_FACE_LINE_PARSERS = (_named_cards_line, _night_aura_line, _flash_perm_line, _night_flash_line, _face_special_lines, _face_mode_and_ward_lines, _face_land_and_mana_lines, _face_cost_and_static_lines, _face_keyword_ability_lines, _face_ability_lines)

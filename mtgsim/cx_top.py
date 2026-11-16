@@ -36,7 +36,8 @@ def parse_line(line: str, st) -> bool:
     if line == "Play with the top card of your library revealed.":
         return True     # information only: the AI players don't model hidden library cards
     m = re.fullmatch(r"(?:You may look at the top card of your library any time,? and )?[Yy]ou may (.+?) from the top "
-                     r"of your library\.", line)
+                     r"of your library\.( If you cast a spell this way, pay life equal to its mana value rather than pay "
+                     r"its mana cost\.)?", line)
     if not m:
         return False
     what = m[1]
@@ -56,15 +57,20 @@ def parse_line(line: str, st) -> bool:
             spells = _words(mm[2]) if mm[2] else []
             if spells is None:
                 return False
+    if m[2] and spells is None:
+        return False
     st.extra.setdefault("advanced_rules", {})["cx_top"] = (lands, spells)
+    if m[2]:        # Bolas's Citadel (#313): those spells cost life equal to their mana value instead of mana
+        st.extra["advanced_rules"]["cx_top_life"] = True
     return True
 
 
 # ---------------------------------------------------------------- engine side
 
-def _rules(p):
+def _rules(p, life=False):
     return [x.card.advanced_rules["cx_top"] for x in p.battlefield
-            if not x.abilities_suppressed and "cx_top" in x.card.advanced_rules]
+            if not x.abilities_suppressed and "cx_top" in x.card.advanced_rules
+            and (not life or x.card.advanced_rules.get("cx_top_life"))]
 
 
 def _fits(card, spells) -> bool:
@@ -78,10 +84,11 @@ def top(p):
     return p.library[-1] if len(p.library) else None
 
 
-def spell_ok(p, card) -> bool:
+def spell_ok(p, card, life=False) -> bool:
+    """card (the top of p's library) may be cast; life: by a permission that has it cost life (Bolas's Citadel)."""
     if card is None or card.is_land or top(p) is not card:
         return False
-    return any(spells is not None and _fits(card, spells) for _, spells in _rules(p))
+    return any(spells is not None and _fits(card, spells) for _, spells in _rules(p, life))
 
 
 def land_ok(p, card) -> bool:
@@ -90,5 +97,11 @@ def land_ok(p, card) -> bool:
 
 
 def options(game, p) -> list:
+    """The top card as a spell option; with a Citadel, also paid with life equal to its mana value (rule 118.9: an
+    alternative cost; additional costs and X still apply, and X is 0 when no mana pays it)."""
+    from .cards import AltCost
     card = top(p)
-    return [game._variant(card, "cx_top")] if spell_ok(p, card) else []
+    out = [game._variant(card, "cx_top")] if spell_ok(p, card) else []
+    if spell_ok(p, card, life=True):
+        out.append(game._variant(card, "cx_top_life", AltCost("cx_top_life", {}, zone="library", life=card.cmc)))
+    return out

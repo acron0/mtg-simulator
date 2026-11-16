@@ -227,6 +227,8 @@ def resolve(game, p, eff, target, item):
             game.leave_battlefield(target, "hand")
         return
     mine = item.targets[0] if item is not None and item.targets else None
+    if mine is not None and item.effects and item.effects[0] is eff:
+        mine = None     # a lone "it fights target creature": targets[0] is this effect's own target, not the fighter (#319)
     if mine is None and item is not None:
         mine = item.source          # "When ~ enters, it deals damage equal to its power to ..."
     if mine is None or target is None:

@@ -164,7 +164,9 @@ def reorder_top(game, p, eff, **_):
 
 
 @kind("discard")
-def discard(game, p, eff, target, **_):
+def discard(game, p, eff, target, item=None, **_):
+    from ...referent import remember_card
+    remember_card(item, None)        # "that card": the one card discarded (#313)
     who = target if isinstance(target, Player) else p
     basics = [c for c in who.hand if is_basic_land(c)] if eff.data.get("unless") == "basic_land" else []
     if basics:
@@ -178,6 +180,8 @@ def discard(game, p, eff, target, **_):
         card = who.ai.choose_discard(game, who)
         game.discard_card(who, card)
         who.discarded_last.append(card)
+        if eff.amount == 1:
+            remember_card(item, card)
         game.log(f"discards {card.name}", who)
 
 
@@ -317,11 +321,15 @@ def tutor(game, p, eff, item, **_):
 def mill(game, p, eff, target, item, opp, **_):
     players = game.players if eff.target == "each_player" else [opp] if eff.target == "each_opponent" else \
         [target] if isinstance(target, Player) else [p]
+    from ...referent import remember_card
+    remember_card(item, None)
     for who in players:
         who.milled_last = []
         for _ in range(min(eff.amount, len(who.library))):
             who.milled_last.append(who.library.pop())
             who.graveyard.append(who.milled_last[-1])
+        if eff.amount == 1 and len(players) == 1 and who.milled_last:
+            remember_card(item, who.milled_last[0])      # "the milled card's mana value" (#313)
         if item is not None:
             if not hasattr(item, "milled"):
                 item.milled = {}

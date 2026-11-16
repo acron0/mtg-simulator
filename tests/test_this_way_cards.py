@@ -67,6 +67,12 @@ class ThisWayCards(unittest.TestCase):
         g, a, b = self.run_spell("Exile all cards from all graveyards. You gain 1 life for each card exiled this way.", setup)
         self.assertEqual(a.life, 20 + 3)
 
+    def test_exile_target_players_graveyard_then_life(self):
+        def setup(a, b):
+            a.graveyard, b.graveyard = bears(1), bears(2)
+        g, a, b = self.run_spell("Exile target player's graveyard. You gain 1 life for each card exiled this way.", setup)
+        self.assertEqual(a.life, 20 + 2)       # the targeted (opposing) graveyard: Titania's Command, Mind Extraction
+
 
 if __name__ == "__main__":
     unittest.main()

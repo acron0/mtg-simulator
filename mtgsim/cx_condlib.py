@@ -559,7 +559,7 @@ def _opp_spells(m):
     return _code("opp_spells", op, n)
 
 
-@rule(rf"an opponent has drawn (?P<n>{_NUM}) or more cards this turn")
+@rule(rf"an opponent (?:has drawn|drew) (?P<n>{_NUM}) or more cards this turn")
 def _opp_drawn(m):
     return _code("drawn_opp", _n(m["n"]))
 
@@ -635,7 +635,7 @@ def _diff_powers(m):
     return _code("diff_powers", _n(m["n"]))
 
 
-# The Traps' conditions (#625): attackers now, and what an opponent drew this turn
+# The Traps' conditions (#625): attackers now (what an opponent drew / cast: _opp_drawn, _opp_spells)
 @rule(rf"(?P<n>{_NUM}) or more creatures are attacking")
 def _attackers_n(m):
     return _code("attackers", ">=", _n(m["n"]))
@@ -645,11 +645,6 @@ def _attackers_n(m):
 def _attacker_kind(m):
     spec = _filter(m["f"], plural=False)
     return _code("attacker_kind", spec) if spec and spec != {"types": ["creature"]} else ""
-
-
-@rule(rf"an opponent drew (?P<n>{_NUM}) or more cards this turn")
-def _opp_drawn(m):
-    return _code("opp_drawn", _n(m["n"]))
 
 
 @rule(rf"at least (?P<n>{_NUM}) mana was spent to cast (?P<ref>it|~|that spell)")
@@ -1262,9 +1257,6 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return _cmp(len(getattr(game, "attackers", ()) or ()), *args)
     if kind == "attacker_kind":
         return any(_card_ok(x.card, args[0], x) for x in getattr(game, "attackers", ()) or ())
-    if kind == "opp_drawn":
-        drawn = getattr(game.opponent(p), "drawn_turn", (None, 0))
-        return drawn[0] == game.turn and drawn[1] >= args[0]
     if kind == "exile":
         return any(True for _ in game.opponent(p).exile)
     if kind == "gy_types":

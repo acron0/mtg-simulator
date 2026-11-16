@@ -384,6 +384,10 @@ def matches(game, permanent, spec, controller, source=None):
         return False
     if not all(c in permanent.card.colors for c in spec.get('colors', [])):
         return False
+    if 'colors_any' in spec and not set(spec['colors_any']) & set(permanent.card.colors):       # "red or green"
+        return False
+    if set(spec.get('not_colors', ())) & set(permanent.card.colors):                            # "nonblack"
+        return False
     for trait in spec.get('traits', []):
         if trait in ('tapped', 'untapped') and permanent.tapped != (trait == 'tapped'):
             return False

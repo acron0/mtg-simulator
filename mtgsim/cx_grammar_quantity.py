@@ -83,10 +83,18 @@ def quantity(text: str):
     m = re.fullmatch(r"the number of (?:([\w+/-]+) )?counters? removed this way", low)
     if m:       # "draw a card for each counter removed this way": what the previous effect removed (#345)
         return ("this_way", "removed", m[1] or "counter")
+    if re.fullmatch(r"(?:the (?:amount of )?|that )?excess damage(?: dealt(?: to (?:that creature|that permanent|a creature|"
+                    r"a permanent))? this way)?", low):
+        return ("cxq", "excess")            # the excess damage this resolution dealt (rule 120.4a, #560)
     if low == "the number of opponents you have":
         return ("cxq", "opponents")
     if low in ("the number of colors of mana spent to cast ~", "the number of colors of mana spent to cast this spell"):
         return ("cxq", "converge")
+    m = re.fullmatch(r"the (?:number|amount) of mana from (.+?) (?:that was )?spent to cast (?:~|this spell|it)", low)
+    if m:       # "for each mana from a Treasure spent to cast ~" (Spoils of the Hunt, Cataclysmic Prospecting)
+        from .cx_spent import source_kind
+        kind = source_kind(m[1])
+        return ("cxq", "mana_from", kind) if kind else None
     if low in ("the amount of mana spent to cast ~", "the amount of mana spent to cast this spell"):
         return ("cxq", "mana_amount")
     if low == "the number of cards you've drawn this turn":
@@ -220,6 +228,10 @@ def value(game, p, spec, item, prev) -> int:
         if item is not None and getattr(item, "is_spell", False):
             return len(getattr(item, "mana_colors", ()))
         return len(getattr(_source(item), "mana_colors", ()))
+    if kind == "mana_from":     # the spell, else a trigger's spell ("Whenever you cast ..."), else the permanent
+        ctx = getattr(item, "context", None)
+        obj = item if getattr(item, "is_spell", False) else ctx if getattr(ctx, "is_spell", False) else _source(item)
+        return getattr(obj, "mana_from", {}).get(spec[2], 0) if obj is not None and getattr(obj, "was_cast", True) else 0
     if kind == "mana_amount":
         return spent_amount(item if item is not None and getattr(item, "is_spell", False) else _source(item))
     if kind == "drawn":
@@ -243,6 +255,8 @@ def value(game, p, spec, item, prev) -> int:
             return len(members)
         stats = [_stat(x, spec[2]) for x in members]
         return max(stats, default=0) if kind == "greatest" else sum(max(0, s) for s in stats)
+    if kind == "excess":
+        return getattr(game, "excess_dealt", 0)
     if kind == "card_types":
         return len({t for c in _zone_cards(game, p, spec[2]) for t in c.types})
     if kind == "cards":

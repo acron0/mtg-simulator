@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import re
 
-from .cards.model import Effect
-
 _NTH = {"second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7}
 _SELF_HEAD = re.compile(r"(?:When|Whenever) (?:~|this (?:creature|permanent|artifact|enchantment|card|Vehicle))[ ,]", re.I)
 _PUT_IT = re.compile(r"\b(?P<may>you may )?put it (?:(?P<end>on top of|on the bottom of|on your choice of the top or "
@@ -51,6 +49,7 @@ def rewrite(line: str):
 
 def _put(m):
     where = m[1].lower()
+    from .cards.model import Effect      # deferred: mtgsim.cards imports this module (tests.test_imports)
     return Effect("owner_library", target="none", data={"where": int(where) if where.isdigit() else where,
                                                        "may": bool(m[2])})
 

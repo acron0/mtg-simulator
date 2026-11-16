@@ -112,6 +112,10 @@ def quantity(text: str):
                      r"destroyed this way", low)
     if m:       # the destroy just before it in this resolution (wrath, destroy_all, group_remove, ... record it) (#337)
         return ("this_way", "destroyed", m[1][:-1])
+    if re.fullmatch(r"the number of cards (?:discarded|milled) this way", low):
+        return ("this_way", low.split()[-3], "card")    # the discard / mill just before it (kinds.cards, #642)
+    if re.fullmatch(r"the number of cards exiled (?:from (?:your|their|a) (?:hand|graveyard) )?this way", low):
+        return ("this_way", "exiled", "card")           # zone_exile's graveyard_exile_all
     if low == "the number of cards drawn this way":
         return ("this_way", "drawn", "card")    # the draw just before it in this resolution (kinds.cards.draw)
     m = re.fullmatch(r"(twice|half) (.+?)(?:, rounded (up|down))?", t, re.I)

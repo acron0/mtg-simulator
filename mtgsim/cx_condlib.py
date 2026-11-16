@@ -36,6 +36,8 @@ _PLURAL_SUB = {"elves": "Elf", "dwarves": "Dwarf", "wolves": "Wolf", "plains": "
                "deserts": "Desert", "gates": "Gate"}
 
 
+_OUTLAWS = ["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"]     # rule 700.12
+
 def _n(word: str) -> int:
     word = word.lower()
     return int(word) if word.isdigit() else _WORDS[word]
@@ -110,6 +112,10 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
         spec[low] = True
     elif low in ("multicolored", "colorless", "monocolored"):
         spec["colorcount"] = low
+    elif low in ("outlaw", "outlaws"):          # rule 700.12
+        spec.setdefault("any_sub", []).extend(_OUTLAWS)
+    elif low == "non-outlaw":
+        spec.setdefault("not_any_sub", []).extend(_OUTLAWS)
     elif low.startswith("non") and low[3:] in _COLORS:
         spec.setdefault("not_colors", []).append(_COLORS[low[3:]])
     elif low in _COLORS:
@@ -224,6 +230,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
         return False
     if spec.get("any_sub") and not (set(spec["any_sub"]) & subs or card.changeling):
         return False
+    if spec.get("not_any_sub") and (set(spec["not_any_sub"]) & subs or card.changeling):
+        return False
     if spec.get("colors") and not all(c in card.colors for c in spec["colors"]):
         return False
     if any(c in card.colors for c in spec.get("not_colors", ())):
@@ -331,6 +339,7 @@ _ALIASES = {
     "you cast ~ from your hand": "lib:[\"from_hand\"]",
     "~ was cast from your hand": "lib:[\"from_hand\"]",
     "~ is attacking": "lib:[\"src_attacking\"]",
+    "~ is attached to a creature": "lib:[\"src_attached\"]",      # an Equipment / Aura on a creature (#625)
     "it's attacking": "lib:[\"src_attacking\",\"it\"]",
     "~ is tapped": "source_tapped",
     "~ is untapped": "source_untapped",
@@ -566,7 +575,7 @@ def _opp_spells(m):
     return _code("opp_spells", op, n)
 
 
-@rule(rf"an opponent has drawn (?P<n>{_NUM}) or more cards this turn")
+@rule(rf"an opponent (?:has drawn|drew) (?P<n>{_NUM}) or more cards this turn")
 def _opp_drawn(m):
     return _code("drawn_opp", _n(m["n"]))
 
@@ -627,6 +636,11 @@ def _attacked(m):
     return _code("attacked", _n(m["n"]))
 
 
+@rule(r"~'s power is (?P<w>even|odd)")
+def _parity(m):
+    return _code("src_parity", m["w"].lower())      # Kianne, Corrupted Memory (#625)
+
+
 @rule(rf"there are (?P<n>{_NUM}) or more cards in exile")
 def _exile_total(m):
     return _code("exile_total", _n(m["n"]))
@@ -640,6 +654,18 @@ def _total_power(m):
 @rule(rf"you control (?P<n>{_NUM}) or more creatures with different powers")
 def _diff_powers(m):
     return _code("diff_powers", _n(m["n"]))
+
+
+# The Traps' conditions (#625): attackers now (what an opponent drew / cast: _opp_drawn, _opp_spells)
+@rule(rf"(?P<n>{_NUM}) or more creatures are attacking")
+def _attackers_n(m):
+    return _code("attackers", ">=", _n(m["n"]))
+
+
+@rule(r"an? (?P<f>[\w ]+? creature(?: with [\w ]+)?) is attacking")
+def _attacker_kind(m):
+    spec = _filter(m["f"], plural=False)
+    return _code("attacker_kind", spec) if spec and spec != {"types": ["creature"]} else ""
 
 
 @rule(rf"at least (?P<n>{_NUM}) mana was spent to cast (?P<ref>it|~|that spell)")
@@ -934,6 +960,9 @@ _PAST = [
     (rf"{_SUBJ_Q} (?P<s>.+?) left the battlefield under your control", "{q} {s} you control leaves the battlefield"),
     (rf"{_SUBJ_Q} (?P<s>.+?) left the battlefield", "{q} {s} leaves the battlefield"),
     (rf"you(?:'ve| have)? cast {_SUBJ_Q} (?P<s>.+?)", "you cast {q} {s}"),
+    (rf"an opponent cast {_SUBJ_Q} (?P<s>.+?)", "an opponent casts {q} {s}"),
+    (rf"an opponent had {_SUBJ_Q} (?P<s>.+?) enter(?: the battlefield)? under their control",
+     "{q} {s} an opponent controls enters"),
     (rf"you(?:'ve| have)? sacrificed {_SUBJ_Q} (?P<s>.+?)", "you sacrifice {q} {s}"),
     (r"you(?:'ve| have)? discarded (?P<q>a|one or more) (?P<s>cards?)", "you discard a card"),
     (r"you(?:'ve| have)? cycled (?P<q>a|one or more) (?P<s>cards?)", "you cycle a card"),
@@ -1264,8 +1293,13 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return game.opponent(p).last_damage_turn == game.turn
     if kind == "attackers":
         return _cmp(len(getattr(game, "attackers", ()) or ()), *args)
+    if kind == "attacker_kind":
+        return any(_card_ok(x.card, args[0], x) for x in getattr(game, "attackers", ()) or ())
     if kind == "exile":
         return any(True for _ in game.opponent(p).exile)
+    if kind == "src_parity":
+        power = getattr(source, "power", None)
+        return power is not None and power % 2 == (0 if args[0] == "even" else 1)
     if kind == "gy_types":
         return len({t for c in p.graveyard for t in c.types}) >= args[0]
     if kind == "any_gy":
@@ -1318,6 +1352,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
                                           for pl in game.players for x in pl.battlefield) >= n
     if kind == "src_attacking":
         return source is not None and source in getattr(game, "attackers", ())
+    if kind == "src_attached":
+        host = getattr(source, "attached_to", None) or getattr(source, "aura_host", None)
+        return host is not None and host.is_creature and host in host.controller.battlefield
     if kind == "src_tapped":
         return source is not None and bool(getattr(source, "tapped", False)) == args[0]
     if kind == "src_creature":

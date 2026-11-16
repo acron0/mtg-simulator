@@ -80,6 +80,23 @@ def damage_amount(game: Game, eff: Effect, source=None) -> int:
     return max(0, src.power) if isinstance(src, Permanent) else 0
 
 
+def _blink_next_end_target(game: Game, me: Player, eff: Effect, mine: list, theirs: list, legal: list):
+    """A permanent of ours that gains from entering again (not the source itself); else the opponent's best one
+    (out of the game until the end step, a token for good); else nothing for an optional target, or the least
+    valuable legal one for a mandatory target (CR 603.3d: a trigger with a legal target must target)."""
+    src = game.target_source
+    src = getattr(src, "source", src)
+    gains = [x for x in mine if x is not src and not x.card.is_token and
+             (x.card.etb_effects or any(t.event == "etb" for t in x.card.triggers))]
+    if gains:
+        return max(gains, key=perm_value)
+    if theirs:
+        return max(theirs, key=perm_value)
+    if eff.data.get("optional_target"):
+        return None
+    return min((x for x in legal if isinstance(x, Permanent)), key=perm_value, default=None)
+
+
 def default_choose_target(game: Game, me: Player, eff: Effect):
     """A reasonable target for eff, respecting hexproof and targeting restrictions."""
     sel = eff.data.get("selector")
@@ -227,8 +244,8 @@ def default_choose_target(game: Game, me: Player, eff: Effect):
     if k == 'search_plan' and eff.data.get('name_as_target'):
         from ..search_counted import choose_name_target
         return choose_name_target(game, me, eff)
-    if k == 'blink_next_end':
-        return max(mine, key=perm_value, default=None)
+    if k == 'blink_next_end':          # "exile target ..., return it at the next end step" (#774)
+        return _blink_next_end_target(game, me, eff, mine, theirs, legal)
     if k == 'relationship_mark':
         if eff.data.get('relationship') == 'counter':
             return max((x for x in mine if x.p1 > 0), key=lambda x: x.p1, default=None)

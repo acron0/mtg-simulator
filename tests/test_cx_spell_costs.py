@@ -29,8 +29,8 @@ class Parse(unittest.TestCase):
                          (("sac", 1, {"any": ["creature", "enchantment"]}),))
 
     def test_refusals(self):
-        for text in ("sacrifice a creature that dealt damage this turn", "sacrifice half the lands you control, rounded up",
-                     "behold a Goblin", "behold a Goblin and sacrifice it", "blight 2 or pay {1}", "forage or pay {B}",
+        for text in ("sacrifice a creature that dealt damage this turn", "sacrifice half the lands you control",
+                     "behold a Goblin", "behold a Goblin and sacrifice it", "blight X", "blight X or pay {1}",
                      "sacrifice a creature or pay {X}", "discard a widget"):
             self.assertIsNone(parse_cost(text), text)
 
@@ -46,7 +46,7 @@ class RealCards(unittest.TestCase):
             "Deprive", "Dusk Mangler", "Final Payment", "Kaervek's Spite", "Lethal Sting", "Natural Order",
             "Phyrexian Tribute", "Ruthless Disposal", "Savage Order", "Shared Discovery", "Spark Harvest",
             "Surge of Strength", "Magmatic Insight", "Guardian of the Great Door", "Soaring Stoneglider")
-    STILL_PARTIAL = ("Treacherous Greed", "Tectonic Split")
+    STILL_PARTIAL = ("Treacherous Greed",)
 
     @classmethod
     def setUpClass(cls):
@@ -481,11 +481,12 @@ class CountedGames(unittest.TestCase):
         self.assertEqual((target.power, target.toughness), (9, 9))
 
     def test_restock_returns_two_cards(self):
-        """'Return two target cards from your graveyard' read 'two target' as a card type and returned nothing."""
+        """'Return two target cards from your graveyard' read 'two target' as a card type and returned nothing
+        (targeted graveyard cards since #546: cx_card_move)."""
         self.a.graveyard.extend([BIG, FOREST, ISLAND])
         spell = self.db.get("Restock")
         self.a.hand = [spell]
-        self.assertTrue(self.g.cast(self.a, spell, []))
+        self.assertTrue(self.g.cast(self.a, spell, self.a.graveyard[:2]))
         self.g.settle()
         self.assertEqual(len(self.a.hand), 2)
 

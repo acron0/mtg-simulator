@@ -555,6 +555,11 @@ def _attacked(m):
     return _code("attacked", _n(m["n"]))
 
 
+@rule(r"~'s power is (?P<w>even|odd)")
+def _parity(m):
+    return _code("src_parity", m["w"].lower())      # Kianne, Corrupted Memory (#625)
+
+
 @rule(rf"there are (?P<n>{_NUM}) or more cards in exile")
 def _exile_total(m):
     return _code("exile_total", _n(m["n"]))
@@ -1168,6 +1173,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         return _cmp(len(getattr(game, "attackers", ()) or ()), *args)
     if kind == "exile":
         return any(True for _ in game.opponent(p).exile)
+    if kind == "src_parity":
+        power = getattr(source, "power", None)
+        return power is not None and power % 2 == (0 if args[0] == "even" else 1)
     if kind == "gy_types":
         return len({t for c in p.graveyard for t in c.types}) >= args[0]
     if kind == "any_gy":

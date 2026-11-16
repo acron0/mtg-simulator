@@ -102,10 +102,13 @@ def _pay(game, payer, cost, item, eff=None) -> bool:
         return _pay_counted(game, payer, cost, item)
     if "discard" in cost:
         cards = [c for c in payer.hand if _card_ok(c, cost["discard"])]
-        if not cards:
+        n = cost.get("count", 1)
+        if len(cards) < n:              # a counted discard needs every card: no partial payment
             return False
-        choice = payer.ai.choose_discard(game, payer)
-        game.discard_card(payer, choice if choice in cards else cards[0])
+        for _ in range(n):
+            cards = [c for c in payer.hand if _card_ok(c, cost["discard"])]
+            choice = payer.ai.choose_discard(game, payer)
+            game.discard_card(payer, choice if choice in cards else cards[0])
         return True
     mana = cost["mana"]
     if cost.get("per") is not None:         # "{1} for each card in your hand": counted now, from the source's side

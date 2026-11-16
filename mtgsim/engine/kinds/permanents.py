@@ -6,7 +6,7 @@ import dataclasses
 from ... import copies, counter_mechanics
 from ...cards import CardDef, Effect, jace_token, make_token, role_token
 from ..policy import choose_basic, perm_value
-from ..state import Permanent, Player, is_basic_land
+from ..state import Permanent, Player, StackItem, is_basic_land
 from . import NO_SBA, kind
 
 
@@ -109,7 +109,9 @@ def destroy_that_player(game, p, eff, item, **_):
     """"Destroy target <type> that player controls" inside a trigger: the "that player" is
     the trigger's context (the player dealt damage), and the most valuable permanent of
     theirs that fits is destroyed, not a normally chosen target."""
-    who = item.context if item is not None and isinstance(item.context, Player) else game.opponent(p)
+    ctx = item.context if item is not None else None
+    ctx = ctx.controller if isinstance(ctx, StackItem) else ctx     # a cast trigger: the spell's caster
+    who = ctx if isinstance(ctx, Player) else game.opponent(p)
     what = eff.data.get("type", "creature")
     fits = lambda x: x.is_creature if what == "creature" else True
     cands = [x for x in who.battlefield if fits(x)]

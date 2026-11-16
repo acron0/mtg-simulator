@@ -227,6 +227,8 @@ def parse_quantity(text: str):
     if re.fullmatch(r"cards?", words, re.I):
         spec = {}
     elif re.fullmatch(r"(.+?) cards?", words, re.I):     # "creature cards" (or a caller's singular "creature card")
+        if verb in ("destroyed", "sacrificed"):
+            return None     # permanents are destroyed, not cards: "creature cards destroyed this way" is malformed
         spec = _filter(re.fullmatch(r"(.+?) cards?", words, re.I)[1], plural=False)
     else:
         # permanents ("creatures", "nonartifact creatures", "nontoken creatures"): they left the battlefield
@@ -250,7 +252,7 @@ def _for_each(m):
     from .cx_grammar import _count_spec
     from .cx_grammar import parse_sentence
     spec = _count_spec(m["d"])
-    if not (isinstance(spec, tuple) and spec[:2] == ("cxq", "tw")) or parse_sentence(m[0]):
+    if not (isinstance(spec, tuple) and (spec[:2] == ("cxq", "tw") or spec[0] == "this_way")) or parse_sentence(m[0]):
         return NO_MATCH         # the effect grammar reads it (it runs after the templates): leave it that way
     body = m["body"].strip().rstrip(",")
     effects, bad = _parse_effects(body[0].upper() + body[1:] + ".")

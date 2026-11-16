@@ -257,6 +257,8 @@ from .. import card_referent as _card_referent
 _EFFECT_PATTERNS += _card_referent.EFFECT_PATTERNS
 from .. import cx_attach as _cx_attach
 _EFFECT_PATTERNS += _cx_attach.EFFECT_PATTERNS
+from .. import cx_replace_amounts as _cx_replace_amounts       # counter-amount replacements (#407)
+_parse_module._FACE_LINE_PARSERS = (_cx_replace_amounts.face_line,) + _parse_module._FACE_LINE_PARSERS
 from .. import cx_static_cost as _cx_static_cost  # one-shot spell-group discounts (#341)
 _EFFECT_PATTERNS += _cx_static_cost.EFFECT_PATTERNS
 from .. import this_way as _this_way  # noqa: E402  "<effect> for each <thing> <verb> this way" (#642)

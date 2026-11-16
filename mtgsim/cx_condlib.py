@@ -136,6 +136,10 @@ def _word_spec(word: str, spec: dict, plural: bool = True) -> bool:
 def _filter(text: str, plural: bool = True, names: bool = False):
     """A permanent/card filter from "other untapped legendary creatures with flying", or None."""
     text = text.strip()
+    if re.fullmatch(r"enchanted permanents?", text):
+        # "an enchanted permanent": one with an Aura attached (#518). Only this exact phrase: "enchanted creature"
+        # in an Aura's text is the Aura's host, not a filter.
+        return {"enchanted": True, "types": ["permanent"]}
     spec: dict = {}
     named = names and re.fullmatch(r"(.+?) named (~|[A-Z][\w'-]*(?:,? (?:[A-Z][\w'-]*|of|the|and|de|la|to|from|in))*)", text)
     if named:       # "a creature named Bogbrew Witch", "four or more creatures named ~" (#314)
@@ -245,6 +249,8 @@ def _card_ok(card, spec: dict, perm=None) -> bool:
     if spec.get("snow") and not getattr(card, "snow", False):
         return False
     if spec.get("historic") and not (card.is_artifact or card.legendary or getattr(card, "is_saga", False)):
+        return False
+    if spec.get("enchanted") and (perm is None or not perm.auras):
         return False
     if perm is not None:
         if "tapped" in spec and bool(perm.tapped) != spec["tapped"]:
@@ -794,6 +800,16 @@ def _prev_is(m):
     return _code("prev_is", f) if f is not None else ""
 
 
+@rule(r"you have max speed")
+def _max_speed(m):
+    return _code("speed", ">=", 4)      # Start your engines!: speed 4 is the maximum (#518)
+
+
+@rule(r"(?:(?:it's|it is) paired with a creature with soulbond|~ is paired with a creature(?: with soulbond)?)")
+def _paired(m):
+    return _code("paired")              # soulbond: a pairing always involves a creature with soulbond
+
+
 @rule(r"(?:it's|it is|that creature is) (?P<w>legendary|tapped|untapped|attacking|blocking|equipped|enchanted)")
 def _prev_state(m):
     w = m["w"].lower()
@@ -1130,6 +1146,11 @@ def check(game, p, code: str, item=None, source=None, prev=None):
         who, spec, op, n = args
         pl = _player_for(game, p, who, item)
         return pl is not None and _cmp(_count_perms(pl, spec, source), op, n)
+    if kind == "speed":
+        return _cmp(getattr(p, "speed", 0), args[0], args[1])
+    if kind == "paired":
+        partner = getattr(source, "partner", None)
+        return partner is not None and any(partner in pl.battlefield for pl in game.players)
     if kind == "ctl_more":                  # the opponent controls at least n more than p
         spec, n = args
         return _count_perms(game.opponent(p), spec) - _count_perms(p, spec) >= n

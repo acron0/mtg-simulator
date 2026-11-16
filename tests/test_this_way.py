@@ -323,3 +323,18 @@ class Slice3(Base):
                                          name="Bane of Progress"))
         self.game.resolve_top()
         self.assertEqual(src.counters.get("+1/+1"), 3)
+
+    def test_goblins_destroyed_this_way(self):
+        gob = card("Test Goblin", "{R}", "Creature — Goblin", "", 1, 1)
+        for c in (gob, gob, BEAR):
+            self.game.enter_battlefield(self.b, c)
+        self.cast("Destroy all creatures. You gain 1 life for each Goblin destroyed this way.")
+        self.assertEqual(self.a.life, 22)
+
+    def test_overwrite_the_multiverse_empowers_by_the_exiled_count(self):
+        """Reparsed (it was full through a data wording reading a game-wide counter): same result."""
+        for _ in range(3):
+            self.game.enter_battlefield(self.b, BEAR)
+        self.resolve_card(self.db("Overwrite the Multiverse"))
+        jace = [x for x in self.a.battlefield if x.is_planeswalker]
+        self.assertEqual([x.loyalty for x in jace], [3])

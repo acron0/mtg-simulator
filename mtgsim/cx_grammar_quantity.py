@@ -110,6 +110,10 @@ def quantity(text: str):
     m = re.fullmatch(r"the number of (permanents|creatures|artifacts|lands|enchantments|tokens) sacrificed this way", low)
     if m:       # the "Sacrifice any number of ..." just before it (cx_grammar_thatmany records one type, or none)
         return ("this_way", "sacrificed", m[1][:-1])
+    m = re.fullmatch(r"the number of (?:nonland )?(permanents|creatures|artifacts|lands|enchantments|planeswalkers) "
+                     r"destroyed this way", low)
+    if m:       # the destroy just before it in this resolution (wrath, destroy_all, group_remove, ... record it) (#337)
+        return ("this_way", "destroyed", m[1][:-1])
     tw = this_way.parse_quantity(t)
     if tw:          # "the number of creature cards milled this way" (#642)
         return tw

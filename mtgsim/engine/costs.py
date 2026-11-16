@@ -238,6 +238,12 @@ class CostsMixin:
             if spec[1] == "mana value":
                 return card.cmc + getattr(spell, "x", 0) * (card.mana_cost.get("X", 0) if isinstance(card.mana_cost, dict) else 0)
             return max(0, int(getattr(card, "power" if spec[1] == "power" else "toughness", 0) or 0))
+        if kind == "attached":       # Auras / Equipment attached to the source (#343)
+            if src is None:
+                return 0
+            return sum(1 for pl in self.players for x in pl.battlefield
+                       if x is not src and (x.attached_to is src or getattr(x, "aura_host", None) is src)
+                       and any(k in x.card.subtypes for k in spec[1]))
         if kind == "stat":
             if spec[1] == "sacrificed":
                 who = getattr(item, "sacrificed_permanent", None)
@@ -877,6 +883,9 @@ class CostsMixin:
                for pl in self.players for x in pl.battlefield):
             return False          # "Creature spells can't be cast" (Aether Storm): the ban applies to everyone
         base, kind, alt = self._origin(card)
+        from ..residual_templates import hand_locked
+        if spell and hand_locked(p) and self._zone(p, kind) is p.hand:    # Experimental Frenzy (#326)
+            return False
         if self.nonmana_locked(p) and kind in ('channel', 'gy_ability', 'unearth'):
             return False
         if card.is_ability and kind in ('channel', 'gy_ability', 'unearth') and self.named_activation_banned(base.name):

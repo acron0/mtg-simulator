@@ -39,9 +39,8 @@ class Parsing(unittest.TestCase):
     def test_conditions(self):
         self.assertEqual(parse("three or more creatures are attacking"), 'lib:["attackers",">=",3]')
         self.assertIn("attacker_kind", parse("a black creature with flying is attacking"))
-        self.assertEqual(parse("an opponent drew three or more cards this turn"), 'lib:["opp_drawn",3]')
-        self.assertEqual(parse("an opponent cast three or more spells this turn"),
-                         'lib:["hist","an opponent casts a spell",3]')
+        self.assertEqual(parse("an opponent drew three or more cards this turn"), 'lib:["drawn_opp",3]')
+        self.assertEqual(parse("an opponent cast three or more spells this turn"), 'lib:["opp_spells",">=",3]')
         self.assertEqual(parse("an opponent had two or more lands enter the battlefield under their control this "
                                "turn"), 'lib:["hist","a land an opponent controls enters",2]')
 

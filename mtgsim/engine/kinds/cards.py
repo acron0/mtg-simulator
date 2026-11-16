@@ -155,15 +155,14 @@ def discard_each(game, p, eff, opp, item=None, **_):
 
 
 @kind("reorder_top")
-def reorder_top(game, p, eff, **_):
-    """Look at the top N and put them back in any order: lands first while short of them, else spells first."""
-    n = min(eff.amount, len(p.library))
-    if n < 2:
-        return
-    top = p.library[-n:]
-    want_land = sum(x.card.is_land for x in p.battlefield) + sum(c.is_land for c in p.hand) < 5
-    top.sort(key=lambda c: c.is_land == want_land)       # the last one is the top card
-    p.library[-n:] = top
+def reorder_top(game, p, eff, target=None, **_):
+    """Look at the top N and put them back in any order: lands first while short of them, else spells first.
+    With a target player (#346) it is that player's library, ordered for them if it is the controller's own and
+    against them otherwise; "that player looks at ... your library" (chooser opponent) orders yours against you."""
+    from .library_peek import order_top
+    who = target if isinstance(target, Player) else p
+    friendly = who is p and eff.data.get("chooser") != "opponent"
+    order_top(who, eff.amount, friendly)
 
 
 @kind("discard")
@@ -605,8 +604,12 @@ def flip_coin(game, p, eff, item, target=None, **_):
     if eff.target == "that_player" and isinstance(target, Player):
         p = target          # "that player flips a coin. If they lose the flip, ..." (Planar Chaos)
     n = getattr(item, "x", 0) if eff.data.get("count_x") else eff.amount if eff.data.get("count") else 1
+    limit = None
+    if eff.data.get("chosen_count"):     # "Choose a number. Flip a coin that many times or until you lose a flip"
+        from ...chance_each import choose_count
+        limit = (getattr(p.ai, "choose_flip_count", None) or choose_count)(game, p, item)
     wins = losses = 0
-    while eff.data.get("until_lose") or wins + losses < n:
+    while (eff.data.get("until_lose") or wins + losses < n) and (limit is None or wins + losses < limit):
         won = toss(game, p)
         wins += int(won)
         losses += int(not won)
@@ -614,12 +617,23 @@ def flip_coin(game, p, eff, item, target=None, **_):
             item.gate_paid = won != bool(eff.data.get("on_lose"))
             item.flip_result = won           # conds "flip_won" / "flip_lost" (chance_templates._fold_seq)
         game.log(f"flips a coin and {'wins' if won else 'loses'}", p)
-        if won:
+        if won and not eff.data.get("no_call"):      # an uncalled coin ("flip two coins", heads/tails) wins nothing
             game.fire(p, "you_win_flip")
         if eff.data.get("until_lose") and not won:
             break
+        if eff.data.get("may_stop"):       # "... or choose to stop flipping" (Fiery Gambit)
+            from ...chance_each import choose_stop
+            if (getattr(p.ai, "choose_flip_stop", None) or choose_stop)(game, p, wins, item):
+                break
     if item is not None:
         item.flips_won, item.flips_lost = wins, losses
+
+
+@kind("flip_each")
+def flip_each(game, p, eff, item, **_):
+    """One coin per player or per creature; tails effects for each tails (chance_each.py)."""
+    from ...chance_each import resolve
+    resolve(game, p, eff, item)
 
 
 _CONJURE_DB = []
@@ -661,3 +675,10 @@ def conjure(game, p, eff, **_):
     if dest == "library" and eff.data.get("shuffle"):
         p.library.shuffle(game.rng)
     game.log(f"conjures {name} into {dest}" if dest != "battlefield" else f"conjures {name}", p)
+
+
+@kind("owner_library")
+def owner_library(game, p, eff, target, item=None, **_):
+    """"Put it on top of / on the bottom of / Nth from the top of its owner's library" (mtgsim.cx_owner_library)."""
+    from ...cx_owner_library import resolve
+    resolve(game, p, eff, target, item)

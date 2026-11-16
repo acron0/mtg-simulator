@@ -73,7 +73,12 @@ def active(permanent):
     from .cx_static_chars import effects as chars          # #406: static type / colour / base-P/T changes
     return static + linked_effects(permanent) + type_grants(permanent) + chars(permanent) + [e for e in game.continuous_effects if e.target is permanent and
             permanent in permanent.controller.battlefield and (e.source is None or
-            e.source in e.source.controller.battlefield)]
+            e.source in e.source.controller.battlefield) and _alive(game, e)]
+
+
+def _alive(game, e):
+    from .cx_statics import effect_alive        # "for as long as ~ remains tapped" (cx_statics.link_effect)
+    return effect_alive(game, e)
 
 
 class CharacteristicView(CardDef):

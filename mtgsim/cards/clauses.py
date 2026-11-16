@@ -40,14 +40,13 @@ _SUB_NOTES = [
      "the tap-lock's duration is not one the engine records, so it is played as a single skipped untap step"),
 ]
 
+# "a creature card with mana value 3 or less": the bound card_matches reads at the end of a description
+_KEEP_BOUND = r"(?: with (?:mana value|power|toughness) \d+(?: or (?:less|greater))?)?"
 _SUBS = [
     (re.compile(r"(?:target opponent reveals their hand\. you choose|look at target opponent's hand\. you may exile) an? "
                 r"(nonland|noncreature, nonland|nonartifact, nonland|instant or sorcery) card from it(?:\. exile that card)? "
                 r"until ~ leaves the battlefield\.", re.I), lambda m: f"HANDEXILE {m[1].lower()}."),
     (re.compile(r"^(~ gains [a-z]+ until end of turn)\. tap it\.", re.I), r"\1. Tap ~."),
-    # The AI never aims its removal at its own creature, so "another" target is any target.
-    (re.compile(r"(destroy|exile) another target (creature or planeswalker|creature|nonland permanent)(?! you own)", re.I),
-     r"\1 target \2"),
     # Activated and triggered abilities can't be countered in the engine: these counter spells only.
     (re.compile(r"counter target spell, activated ability, or triggered ability", re.I), "counter target spell"),
     # Planeswalkers rarely matter as the target: "creature or planeswalker you control gains ..." is the creature.
@@ -139,10 +138,10 @@ _SUBS = [
     (re.compile(r"look at the top (\w+) cards of your library\. put (\w+) of them into your hand and the "
                 r"rest on the bottom of your library(?: in (?:a random|any|any random) order)?\.", re.I),
      lambda m: f"DIG {_num(m[1])} {_num(m[2])}."),
-    (re.compile(r"look at the top (\w+) cards of your library\. you may reveal (an? .+? card) from among them and "
+    (re.compile(rf"look at the top (\w+) cards of your library\. you may reveal (an? .+? card{_KEEP_BOUND}) from among them and "
                 r"put it into your hand\. put the rest on the bottom of your library in (?:a random|any) order\.",
                 re.I), lambda m: f"DIGFILTER {_num(m[1])} {m[2]}."),
-    (re.compile(r"look at the top (\w+) cards of your library\. you may put (an? [\w, -]+? card) from among them "
+    (re.compile(rf"look at the top (\w+) cards of your library\. you may put (an? [\w, -]+? card{_KEEP_BOUND}) from among them "
                 r"into your hand\. put the rest on the bottom of your library in (?:a random|any) order\.",
                 re.I), lambda m: f"DIGFILTER {_num(m[1])} {m[2]}."),
     (re.compile(r"look at the top \w+ cards of your library, where X is the number of lands you control\. put "
@@ -196,7 +195,9 @@ _SUBS = [
     # "Return this card from your graveyard": the card itself is "~".
     (re.compile(r"\breturn this card from your graveyard\b", re.I), r"return ~ from your graveyard"),
     # "You may have ~ deal N damage to ...": always taken, so the damage is certain (Game.resolve_item).
-    (re.compile(r"you may have ~ deal (\d+) damage to (any target|target [a-z' ]+)", re.I), r"~ deals \1 damage to \2"),
+    # Only a lone recipient: "... and 1 damage to you" must not become a forced cost.
+    (re.compile(r"you may have ~ deal (\d+) damage to (any target|target [a-z' ]+?)(?=\.|$)", re.I),
+     r"~ deals \1 damage to \2"),
     (re.compile(r"then return a creature or planeswalker card with mana value X or less from your graveyard to "
                 r"the battlefield, where X is the amount of \{S\} spent to cast ~\.", re.I),
      lambda m: "REANIMATESNOW."),

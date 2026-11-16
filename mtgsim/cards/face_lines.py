@@ -1072,6 +1072,11 @@ def _face_keyword_ability_lines(st, line):
                                 "basic" if kind == "basic landcycling" else "any" if kind == "landcycling" else
                                 m[1][:-7]}
             return None
+        from .. import kw_lines as _kw_lines
+        spec = _kw_lines.typecycling(line)       # "Wizardcycling {2}", "Islandcycling {2}, swampcycling {2}" (#646)
+        if spec is not None:
+            extra["cycling"] = spec
+            return None
         m = re.fullmatch(r"Saddle (\d+)", line)
         if m:
             extra["saddle"] = int(m[1])

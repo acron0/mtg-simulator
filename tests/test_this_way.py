@@ -55,7 +55,7 @@ class Parse(unittest.TestCase):
                   "If you didn't put a creature card into your hand this way, draw a card.",
                   "If a Foo card is exiled this way, draw a card.",
                   "You gain 1 life for each card returned this way.",
-                  "You gain 1 life for each creature you controlled that was destroyed this way."):
+                  "You gain 1 life for each creature they controlled that was destroyed this way."):
             with self.subTest(s=s):
                 self.assertTrue(_parse_effects(s)[1], s)
 
@@ -247,3 +247,98 @@ class HandAndSacrifice(Base):
         self.assertTrue(self.game.activate_ability(self.a, omnivore, 0))
         self.game.settle()
         self.assertEqual(self.a.life, life + (2 if sacrificed_bear else 0))      # the other one now
+
+
+@unittest.skipUnless(DB_FILE.exists(), "card database not built")
+class Slice3(Base):
+    """'<effect> for each <thing> <verb> this way', permanents that left the battlefield, 'you controlled'."""
+    def db(self, name):
+        from mtgsim.carddb import CardDB
+        return CardDB().get(name)
+
+    def resolve_card(self, c, targets=(), effects=None):
+        effs = list(effects if effects is not None else c.spell_effects)
+        self.game.stack.append(StackItem(self.a, effs, list(targets) + [None] * (len(effs) - len(targets)), card=c,
+                                         name=c.name))
+        self.game.resolve_top()
+
+    def test_kayas_wrath_counts_only_yours(self):
+        for _ in range(2):
+            self.game.enter_battlefield(self.a, BEAR)
+        for _ in range(3):
+            self.game.enter_battlefield(self.b, BEAR)
+        self.resolve_card(self.db("Kaya's Wrath"))
+        self.assertEqual((self.a.life, len(self.a.creatures), len(self.b.creatures)), (22, 0, 0))
+
+    def test_sunfall_incubates_the_number_exiled(self):
+        for _ in range(2):
+            self.game.enter_battlefield(self.a, BEAR)
+        self.game.enter_battlefield(self.b, BEAR)
+        self.resolve_card(self.db("Sunfall"))
+        incubator = [x for x in self.a.battlefield if "Incubator" in x.card.name]
+        self.assertEqual(len(incubator), 1)
+        self.assertEqual(incubator[0].counters.get("+1/+1"), 3)
+
+    def test_malanthrope_counts_creature_cards_exiled(self):
+        self.b.graveyard.extend([BEAR, ISLAND, BEAR])
+        m = self.db("Malanthrope")
+        perm = self.game.enter_battlefield(self.a, BEAR)
+        trig = next(t for t in m.triggers if t.event == "etb")
+        self.game.stack.append(StackItem(self.a, list(trig.effects), [self.b] + [None] * (len(trig.effects) - 1),
+                                         source=perm, name="Malanthrope"))
+        self.game.resolve_top()
+        self.assertEqual(perm.counters.get("+1/+1"), 2)
+
+    def test_recall_returns_one_per_discard(self):
+        self.a.graveyard.extend([BEAR, BEAR])
+        self.a.hand = [ISLAND, ISLAND, ISLAND]
+        item = StackItem(self.a, list(self.db("Recall").spell_effects), [None] * 3, card=self.db("Recall"),
+                         name="Recall")
+        item.x = 2
+        self.game.stack.append(item)
+        self.game.resolve_top()
+        self.assertEqual(len(self.a.hand), 1 + 2)       # one Island kept, two cards returned
+
+    def test_earlier_part_of_the_sentence_keeps_the_count(self):
+        """"Mill two cards. You gain 2 life, then draw a card for each card put into your graveyard this way": the
+        life gain (an earlier part of the counted sentence) doesn't start a journal of its own."""
+        self.a.library = [ISLAND] * 5
+        self.cast("Mill two cards. You gain 2 life, then draw a card for each card put into your graveyard this way.")
+        self.assertEqual((self.a.life, len(self.a.hand)), (22, 2))
+
+
+    def test_seasoned_pyromancer_counts_nonland_discards(self):
+        pyro = self.db("Seasoned Pyromancer")
+        trig = next(t for t in pyro.triggers if t.event == "etb")
+        src = self.game.enter_battlefield(self.a, BEAR)
+        self.a.hand = [ISLAND, BEAR]
+        self.game.stack.append(StackItem(self.a, list(trig.effects), [None] * len(trig.effects), source=src,
+                                         name="Seasoned Pyromancer"))
+        self.game.resolve_top()
+        self.assertEqual(sum(x.card.is_token for x in self.a.battlefield), 1)     # one nonland card discarded
+
+    def test_bane_of_progress_counts_destroyed_permanents(self):
+        bane = self.db("Bane of Progress")
+        trig = next(t for t in bane.triggers if t.event == "etb")
+        src = self.game.enter_battlefield(self.a, BEAR)
+        for c in (ROCK, CHARM, ROCK):
+            self.game.enter_battlefield(self.b, c)
+        self.game.stack.append(StackItem(self.a, list(trig.effects), [None] * len(trig.effects), source=src,
+                                         name="Bane of Progress"))
+        self.game.resolve_top()
+        self.assertEqual(src.counters.get("+1/+1"), 3)
+
+    def test_goblins_destroyed_this_way(self):
+        gob = card("Test Goblin", "{R}", "Creature — Goblin", "", 1, 1)
+        for c in (gob, gob, BEAR):
+            self.game.enter_battlefield(self.b, c)
+        self.cast("Destroy all creatures. You gain 1 life for each Goblin destroyed this way.")
+        self.assertEqual(self.a.life, 22)
+
+    def test_overwrite_the_multiverse_empowers_by_the_exiled_count(self):
+        """Reparsed (it was full through a data wording reading a game-wide counter): same result."""
+        for _ in range(3):
+            self.game.enter_battlefield(self.b, BEAR)
+        self.resolve_card(self.db("Overwrite the Multiverse"))
+        jace = [x for x in self.a.battlefield if x.is_planeswalker]
+        self.assertEqual([x.loyalty for x in jace], [3])

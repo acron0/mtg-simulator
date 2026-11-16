@@ -262,6 +262,8 @@ from .. import cx_replace_amounts as _cx_replace_amounts       # counter-amount 
 _parse_module._FACE_LINE_PARSERS = (_cx_replace_amounts.face_line,) + _parse_module._FACE_LINE_PARSERS
 from .. import cx_static_cost as _cx_static_cost  # one-shot spell-group discounts (#341)
 _EFFECT_PATTERNS += _cx_static_cost.EFFECT_PATTERNS
+from .. import this_way as _this_way  # noqa: E402  "<effect> for each <thing> <verb> this way" (#642)
+_EFFECT_PATTERNS += _this_way.EFFECT_PATTERNS
 from .. import cx_exile_play as _cx_exile_play          # "exile the top card of that player's library" (#316)
 _EFFECT_PATTERNS += _cx_exile_play.EFFECT_PATTERNS
 _SUBS += _cx_exile_play.SUBS

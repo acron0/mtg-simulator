@@ -65,13 +65,13 @@ class Counters(dict):
         if key == "charge" and value != old:       # Spacecraft: a creature at its station threshold
             from .. import continuous
             continuous.refresh(perm)
-        if key == "+1/+1" and value > old and perm in perm.controller.battlefield:
+        if key in ("+1/+1", "-1/-1") and value > old and perm in perm.controller.battlefield:
             game = getattr(perm.controller, "_game", None)
             if game is not None:
                 saved = getattr(game, "event_amount", None)
                 game.event_amount = value - old         # "that many": the counters just put on it
                 try:
-                    game.fire(perm.controller, "p1_added", perm)
+                    game.fire(perm.controller, "p1_added" if key == "+1/+1" else "m1_added", perm)
                 finally:
                     game.event_amount = saved
 

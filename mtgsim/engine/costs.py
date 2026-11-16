@@ -199,6 +199,9 @@ class CostsMixin:
         p.expend = (self.turn, old + len(payment))
         for n in range(old + 1, old + len(payment) + 1):
             self.fire(p, "expend", subject=n)
+        for s in payment:       # "Whenever a player taps a land for mana" (cx_trig_heads)
+            if isinstance(s, Permanent) and s.tapped and s in s.controller.battlefield:
+                self.fire(s.controller, "tapped_for_mana", s)
         return payment
 
     def x_quantity(self, p: Player, spec: tuple, item, prev) -> int:
@@ -223,6 +226,11 @@ class CostsMixin:
             card = spell.card if isinstance(spell, StackItem) else None
             if card is None:
                 return 0
+            if spec[1] == "mana_spent":         # "the amount of mana spent to cast that spell"
+                from ..cx_grammar_quantity import spent_amount
+                return spent_amount(spell)
+            if spec[1] == "converge":           # "... colors of mana spent to cast that spell"
+                return len(set(getattr(spell, "mana_colors", ())) & set("WUBRG"))
             if spec[1] == "colors":
                 return len(card.colors)
             if spec[1] == "generic":
@@ -899,7 +907,9 @@ class CostsMixin:
                     and not (card.is_sorcery and (player_flag(self, p, "sorcery_flash") or any(
                         x.card.advanced_rules.get("sorcery_flash") and not x.abilities_suppressed
                         for x in p.battlefield))):
-                return False
+                from ..cx_flash_perm import flash_allowed
+                if not flash_allowed(self, p, card):
+                    return False
         if any(e.target == "spell" and not e.data.get("optional_target") and not self.legal_targets(p, e)
                for e in card.spell_effects):
             return False

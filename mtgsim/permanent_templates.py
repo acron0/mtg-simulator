@@ -195,6 +195,12 @@ def selector(text, *, plural=False):
         result['other'] = True
         text = text.split(' ', 1)[1]
     text = re.sub(r'^(?:a|an) ', '', text, flags=re.I)
+    # "target permanent other than ~" (#645): the source itself is excluded, like "another"
+    other = re.search(r' other than (?:~|this (?:creature|permanent|artifact|enchantment|land))$', text, re.I)
+    if other:
+        result['other'] = result['other_than_source'] = True
+        text = text[:other.start()]
+    text = re.sub(r'(\bnon[a-z]+), (?=non[a-z]+\b)', r'\1 ', text, flags=re.I)    # "nonland, nontoken permanent"
     # "creatures named Paper Tiger", "other creatures you control named ~", "creature named ~ you control" (#314):
     # a name, read up to a controller / zone phrase or the end ("~" is the source's own name)
     text = re.sub(r" on the battlefield( named .+)$", r"\1", text)    # "other creature on the battlefield named ~"
@@ -275,7 +281,7 @@ def selector(text, *, plural=False):
                 types.append(low)
             elif low in ('tapped', 'untapped', 'attacking', 'blocking', 'legendary', 'nonlegendary', 'token', 'nontoken',
                          'nonland', 'noncreature', 'nonartifact', 'colorless', 'multicolored', 'monocolored',
-                         'suspected', 'snow', 'nonsnow'):
+                         'suspected', 'snow', 'nonsnow') or low.startswith('non') and low[3:] in _TYPES:
                 result.setdefault('traits', []).append(low)
             elif low in _COLORS:
                 result.setdefault('colors', []).append(_COLORS[low])
@@ -446,6 +452,8 @@ def build(kind, obj, *, amount=0, amount2=0, data=None):
         return None
     target, more = subj
     combined = dict(more, **(data or {}))
+    if isinstance(more.get('selector'), dict) and more['selector'].get('other_than_source'):
+        combined['other_than_source'] = True
     if target == 'group':
         return Effect('permanent_group', data={'selector': more['selector'], 'effect':
                       Effect(kind, amount, amount2, target='self', data=data or {})})

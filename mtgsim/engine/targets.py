@@ -194,7 +194,8 @@ class TargetsMixin:
             return True
         sel = eff.data.get('selector')
         other = eff.data.get('other') or (isinstance(sel, dict) and sel.get('other'))
-        return bool(other) and not eff.data.get('other_than_source')
+        return bool(other) and not eff.data.get('other_than_source') \
+            and not (isinstance(sel, dict) and sel.get('other_than_source'))
 
     def _earlier_targets(self, eff: Effect) -> list:
         """The targets chosen for the effects before eff in the same spell or ability, while its targets are

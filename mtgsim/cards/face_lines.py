@@ -1080,6 +1080,9 @@ def _face_keyword_ability_lines(st, line):
         from .. import champion as _champion
         if _champion.parse_line(line, st):      # "Champion an Elf" (#646)
             return None
+        from .. import morph_costs as _morph_costs
+        if _morph_costs.parse_line(line, st):           # "Morph—Reveal a black card in your hand." (#646)
+            return None
         from .. import cumulative_costs as _cumulative_costs
         if _cumulative_costs.parse_line(line, st):      # "Cumulative upkeep—Discard a card." (#646)
             return None

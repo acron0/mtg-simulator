@@ -26,7 +26,8 @@ class EffectsMixin:
             return (source.has(keyword) if isinstance(source, Permanent)
                     else isinstance(source, CardDef) and keyword in source.keywords)
         from ..cx_shields import apply as cx_shields, unpreventable
-        preventable = not self.no_prevention_turn and not unpreventable(self, source)   # Skullcrack, Everlasting Torment
+        preventable = not self.no_prevention_turn and not unpreventable(self, source) \
+            and not getattr(self, "unpreventable_now", False)   # Skullcrack, Everlasting Torment, Lightning Surge
         amount = cx_shields(self, target, amount, by, source, combat, preventable)     # prevention / redirection rules
         if amount <= 0:
             return
@@ -395,9 +396,13 @@ class EffectsMixin:
 
     def discard_card(self, p: Player, card: CardDef):
         from ..madness import after_discard, discard_destination
-        card = self.move_card(card, p.hand, discard_destination(self, p, card), reason="discard")
-        p.discarded_cards.append(card)
-        after_discard(self, p, card)
+        from ..cx_discard_bf import onto_battlefield         # "... causes you to discard this card, put it onto the battlefield" (#628)
+        if onto_battlefield(self, p, card):
+            p.discarded_cards.append(card)
+        else:
+            card = self.move_card(card, p.hand, discard_destination(self, p, card), reason="discard")
+            p.discarded_cards.append(card)
+            after_discard(self, p, card)
         self.fire(p, "you_discard")
         # The subject lets typed listeners ("whenever an opponent discards a creature/land card",
         # Waste Not) filter on the discarded card's types.

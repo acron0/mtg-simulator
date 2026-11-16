@@ -318,6 +318,7 @@ _ALIASES = {
     "you cast ~ from your hand": "lib:[\"from_hand\"]",
     "~ was cast from your hand": "lib:[\"from_hand\"]",
     "~ is attacking": "lib:[\"src_attacking\"]",
+    "~ is attached to a creature": "lib:[\"src_attached\"]",      # an Equipment / Aura on a creature (#625)
     "it's attacking": "lib:[\"src_attacking\",\"it\"]",
     "~ is tapped": "source_tapped",
     "~ is untapped": "source_untapped",
@@ -1218,6 +1219,9 @@ def check(game, p, code: str, item=None, source=None, prev=None):
                                           for pl in game.players for x in pl.battlefield) >= n
     if kind == "src_attacking":
         return source is not None and source in getattr(game, "attackers", ())
+    if kind == "src_attached":
+        host = getattr(source, "attached_to", None) or getattr(source, "aura_host", None)
+        return host is not None and host.is_creature and host in host.controller.battlefield
     if kind == "src_tapped":
         return source is not None and bool(getattr(source, "tapped", False)) == args[0]
     if kind == "src_creature":

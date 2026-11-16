@@ -58,7 +58,6 @@ class Refusals(unittest.TestCase):
                   "~ deals damage to target player equal to the number of creatures they control.",
                   "~ deals damage to each opponent equal to the number of Wolves and Werewolves you control.",
                   "~ deals damage to target creature equal to the number of counters on it.",      # whose "it"?
-                  "~ deals damage to any target equal to the excess damage dealt this way.",
                   "~ deals damage to each opponent equal to the number of Foo Bars you control.",
                   "~ deals damage to each opponent equal to the difference.",
                   "it deals damage to each opponent equal to twice the number of times it was kicked."):

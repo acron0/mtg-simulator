@@ -8,8 +8,10 @@
 A keyword is granted this way only when it is a purely triggered keyword in this engine: a blank creature whose only
 text is the keyword parses with nothing but triggers added (``_keyword_triggers`` checks it once per keyword). Those
 triggers are recorded as ``trigger_grants`` (cx_trigger_grants), so the recipient really has them: "~" in them is
-the recipient, a permanent joining the group gains them and one leaving loses them. A keyword that sets other
-fields (riot, outlast, exalted, training, myriad), isn't implemented, or parses to nothing keeps the line unmatched.
+the recipient, a permanent joining the group gains them and one leaving loses them. Exalted, training, dethrone
+and riot, which the engine reads from the permanent itself, become ordinary static keyword grants instead (counted
+by ``Permanent.keyword_instances``, and riot checked as a creature enters). Other keywords that set fields
+(outlast, myriad), aren't implemented, or parse to nothing keep the line unmatched.
 """
 from __future__ import annotations
 
@@ -69,11 +71,25 @@ def parse_line(line: str, st) -> bool:
     if not m or re.match(r"(?:enchanted|equipped)\b", m["s"], re.I):
         return False
     triggers = _all_triggers(m["k"])
-    if not triggers:
+    counted = None if triggers else _counted(m["k"])
+    if not triggers and not counted:
         return False
     from .permanent_templates import selector
     spec = selector(m["s"], plural=True)
     if spec is None or "keyword" in spec:
         return False
+    if counted:          # read where the engine reads the keyword (Permanent.has / keyword_instances)
+        st.extra["static_keyword_grants"] = st.extra.get("static_keyword_grants", ()) + ((spec, tuple(counted)),)
+        return True
     _record(st, spec, list(triggers))
     return True
+
+
+# Keywords the engine reads from the permanent itself rather than as triggers: exalted (keyword_instances builds its
+# attacks-alone triggers), training and dethrone (has + keyword_instances), riot (checked as the creature enters).
+_COUNTED = ("exalted", "training", "dethrone", "riot")
+
+
+def _counted(text: str):
+    kws = [k.strip() for k in re.split(r",? and |, ", text)]
+    return kws if kws and all(k in _COUNTED for k in kws) else None

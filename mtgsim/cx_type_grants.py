@@ -40,6 +40,9 @@ def _subtypes(words: str, plural: bool):
 
 def parse_line(line: str, st) -> bool:
     import copy
+    from .zone_grants import parse_line as zone_grant_line     # "<cards> in your graveyard have retrace" (#633)
+    if zone_grant_line(line, st):
+        return True
     m = _CLAUSE.search(line)
     if not m or line.count(" in addition to ") != 1:
         return False

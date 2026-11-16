@@ -7,7 +7,7 @@ import re
 from ... import cast_triggers, returns, counter_mechanics
 from ...cards import AltCost, CardDef, Effect
 from ...identity import Graveyard
-from ..state import Permanent, Player, TrackedZone, card_matches, note_this_way
+from ..state import Permanent, Player, TrackedZone, card_matches
 from . import NO_SBA, kind
 
 
@@ -301,13 +301,11 @@ def exile_gy(game, eff, opp, item=None, **_):
             card = max(opp.graveyard, key=lambda c: (c.is_creature, c.cmc))
             opp.graveyard.remove(card)
             opp.exile.append(card)
-            note_this_way(item, "exiled", ["card"], 1)
             if item is not None:
                 item.exiled_card = card      # "If it was a creature card, ..." (cx_condlib prev_is)
     else:
         for card in list(opp.graveyard):
             game.move_card(card, opp.graveyard, opp.exile, reason="exile_graveyard")
-            note_this_way(item, "exiled", ["card"], 1)     # "gain 1 life for each card exiled this way" (#642)
 
 
 @kind("last_gift")

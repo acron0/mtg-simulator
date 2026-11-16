@@ -72,12 +72,9 @@ def destroy_group(game, p, eff, opp, item=None, **_):
 
 
 @kind("discard_hand")
-def discard_hand(game, p, item=None, **_):
-    from ..state import note_this_way
-    cards = list(p.hand)
-    for c in cards:
+def discard_hand(game, p, **_):
+    for c in list(p.hand):
         game.discard_card(p, c)
-    note_this_way(item, "discarded", ["card"], len(cards))
 
 
 @kind("discard_redraw")

@@ -143,15 +143,12 @@ def discard_defender(game, p, eff, item, **_):
 
 
 @kind("discard_each")
-def discard_each(game, p, eff, opp, item=None, **_):
-    n = 0
+def discard_each(game, p, eff, opp, **_):
     for who in (p, opp):
         for _ in range(min(eff.amount, len(who.hand))):
             card = who.ai.choose_discard(game, who)
             game.discard_card(who, card)
             game.log(f"discards {card.name}", who)
-            n += 1
-    note_this_way(item, "discarded", ["card"], n)
 
 
 @kind("reorder_top")
@@ -178,12 +175,10 @@ def discard(game, p, eff, target, item=None, **_):
         game.discard_card(who, card)
         game.log(f"discards {card.name}", who)
     who.discarded_last = []
-    note_this_way(item, "discarded", ["card"], len(basics[:1]))
     for _ in range(0 if basics else min(eff.amount, len(who.hand))):
         card = who.ai.choose_discard(game, who)
         game.discard_card(who, card)
         who.discarded_last.append(card)
-        note_this_way(item, "discarded", ["card"], 1)
         if eff.amount == 1:
             remember_card(item, card)
         game.log(f"discards {card.name}", who)
@@ -332,7 +327,6 @@ def mill(game, p, eff, target, item, opp, **_):
         for _ in range(min(eff.amount, len(who.library))):
             who.milled_last.append(who.library.pop())
             who.graveyard.append(who.milled_last[-1])
-            note_this_way(item, "milled", ["card"], 1)
         if eff.amount == 1 and len(players) == 1 and who.milled_last:
             remember_card(item, who.milled_last[0])      # "the milled card's mana value" (#313)
         if item is not None:

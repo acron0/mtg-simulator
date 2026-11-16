@@ -1,7 +1,7 @@
 """Shared mass moves, graveyard actions, Adapt, and triggered casting."""
 from ... import counter_mechanics, permanent_templates
 from ...cards import AltCost
-from ..state import Permanent, card_matches, note_this_way
+from ..state import Permanent, card_matches
 from . import kind
 
 
@@ -34,7 +34,7 @@ def filtered_grave_return(game, p, eff, **_):
 
 
 @kind('graveyard_exile_all', 'graveyard_exile_choice')
-def graveyard_exile(game, p, eff, target, opp=None, item=None, **_):
+def graveyard_exile(game, p, eff, target, opp=None, **_):
     d = eff.data or {}
     if d.get('who'):          # zone_exile templates: "exile all <filter> cards from <whose> graveyard/hand"
         players = {'you': [p], 'each': list(game.players), 'opponents': [game.opponent(p)]}.get(d['who']) \
@@ -51,7 +51,6 @@ def graveyard_exile(game, p, eff, target, opp=None, item=None, **_):
             cards = [chosen] if any(chosen is c for c in cards) else [cards[0]]
         for card in cards:
             game.move_card(card, src, player.exile)
-            note_this_way(item, 'exiled', ['card'], 1)
 
 
 @kind('counter_context')

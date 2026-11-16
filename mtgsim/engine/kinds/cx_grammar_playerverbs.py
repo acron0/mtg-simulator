@@ -1,5 +1,5 @@
 """Kinds for the grammar's player verbs (see mtgsim.cx_grammar_playerverbs): discards that read their player."""
-from ..state import Player, note_this_way
+from ..state import Player
 from . import kind
 
 
@@ -19,7 +19,6 @@ def discard_random(game, p, eff, target, item, prev=None, **_):
         for _ in range(min(n, len(who.hand))):
             card = game.rng.choice(list(who.hand))
             game.discard_card(who, card)
-            note_this_way(item, "discarded", ["card"], 1)
             game.log(f"discards {card.name} at random", who)
 
 
@@ -28,5 +27,4 @@ def discard_hand(game, p, eff, target, item, prev=None, **_):
     for who in _who(game, p, eff, target, item, prev):
         for card in list(who.hand):
             game.discard_card(who, card)
-            note_this_way(item, "discarded", ["card"], 1)
         game.log("discards their hand", who)

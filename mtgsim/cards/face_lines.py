@@ -173,7 +173,8 @@ def _face_special_lines(st, line):
         line = re.sub(r"^[A-Z][a-z]+'s [A-Z][a-z]+ — (?=When )", "", line)    # a named trigger: Wasp's Sting
         # Any ability word ("Phalanx Commander —", "Life Drain —") before a When/At/If line; "Survival — "
         # keeps its prefix: it names a distinct engine event.
-        line = re.sub(r"^(?!(?:Survival|Pack tactics) — )[A-Z][\w'&/ ]+ — (?=When|At|If)", "", line)
+        line = re.sub(r"^(?!(?:Survival|Pack tactics) — |[IVX]+(?:, [IVX]+)* — )[A-Z][\w'&/ ,.!-]+ — (?=When|At|If)", "",
+                      line)       # also "Vibro-Shock Gauntlets —", "Bring it Down! —" (CR 207.2c); not Saga chapters
         # Discard triggers fire once per card, so "that many" counters is one counter each time.
         line = re.sub(r"^(Whenever you discard one or more cards), put that many \+1/\+1 counters on ~\.$",
                       r"\1, put a +1/+1 counter on ~.", line)
@@ -1038,7 +1039,7 @@ def _face_cost_and_static_lines(st, line):
             alt_costs.append(AltCost(m[1].lower(), parse_mana_cost(m[2])))
             return None
         from ..cx_spell_costs import parse_line as _spell_add_cost      # "As an additional cost to cast ~, ..." (#342)
-        if _spell_add_cost(line, extra):
+        if _spell_add_cost(line, extra, getattr(st, "mana_cost", None)):
             return None
         return line
     finally:
@@ -1075,6 +1076,17 @@ def _face_keyword_ability_lines(st, line):
             extra["cycling"] = {"cost": parse_mana_cost(m[2]), "land": "" if kind == "cycling" else
                                 "basic" if kind == "basic landcycling" else "any" if kind == "landcycling" else
                                 m[1][:-7]}
+            return None
+        from .. import champion as _champion
+        if _champion.parse_line(line, st):      # "Champion an Elf" (#646)
+            return None
+        from .. import cumulative_costs as _cumulative_costs
+        if _cumulative_costs.parse_line(line, st):      # "Cumulative upkeep—Discard a card." (#646)
+            return None
+        from .. import kw_lines as _kw_lines
+        spec = _kw_lines.typecycling(line)       # "Wizardcycling {2}", "Islandcycling {2}, swampcycling {2}" (#646)
+        if spec is not None:
+            extra["cycling"] = spec
             return None
         m = re.fullmatch(r"Saddle (\d+)", line)
         if m:
@@ -1266,6 +1278,9 @@ def _face_ability_lines(st, line):
             unsupported += bad
             return None
         if cx_grammar.parse_static(line, st):
+            return None
+        from ..cx_night_buffs import enters_tapped_late      # "~ enters tapped unless / if <condition>" (#630)
+        if enters_tapped_late(line, st):
             return None
         unsupported.append(line)
         return line

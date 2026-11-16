@@ -1,7 +1,7 @@
 """Game methods for game events that effects and rules cause: damage, destroy, sacrifice, dying, state-based actions."""
 from __future__ import annotations
 
-from .. import continuous, counter_mechanics, cx_static_damage, cx_triggers, that_much
+from .. import continuous, counter_mechanics, cx_static_damage, cx_triggers, that_much, this_way
 
 from .. import auras, cx_trig_damage, cx_trig_state
 from ..cards import AltCost, CardDef, Effect
@@ -90,8 +90,10 @@ class EffectsMixin:
             self.event_combat = False
         self.event_amount = None
         if isinstance(target, Player):
-            if combat and isinstance(source, Permanent) and source.card.toxic:
-                target.counters["poison"] = target.counters.get("poison", 0) + source.card.toxic
+            from ..kw_values import amounts as kw_amounts      # granted toxic adds up (#633, CR 702.164c)
+            toxic = source.card.toxic + sum(kw_amounts(source, "toxic")) if combat and isinstance(source, Permanent) else 0
+            if toxic:
+                target.counters["poison"] = target.counters.get("poison", 0) + toxic
             if infect:
                 target.counters["poison"] = target.counters.get("poison", 0) + amount
             else:
@@ -123,6 +125,7 @@ class EffectsMixin:
         else:
             return
         self.last_dealt = amount
+        this_way.note_damage(self, target, amount)      # "if a creature is dealt damage this way" (#642)
         from ..batch1_templates import soul_link
         soul_link(self, source, target, amount)
         cx_triggers.on_damage(self, source, target, amount, combat)

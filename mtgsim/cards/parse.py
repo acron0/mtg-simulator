@@ -16,14 +16,15 @@ from .patterns import _EFFECT_PATTERNS
 # "You may <effect>" is always taken, so only for effects that cost the player nothing.
 _MAY_DECLINED = {"sacrifice", "sacrifice_self", "discard", "discard_choice", "lose_life", "mill", "pay_gate",
                  "damage", "drain", "destroy", "exile", "exile_permanent", "wrath", "bounce"}
-_MAY_COUNTERS = {"cx_remove_counters", "cx_move_counters", "cx_exchange_mark", "cx_exchange", "cx_attach_mark", "cx_attach"}   # the AI may decline
+_MAY_COUNTERS = {"cx_remove_counters", "cx_move_counters", "cx_exchange_mark", "cx_exchange", "cx_attach_mark", "cx_attach", "blink"}   # the AI may decline
 
 
 def hostile_may(text, new):
     """Mark a lone targeted "you may destroy/exile/return/deal damage to target ..." as optional-by-target (see Game.resolve_item)."""
     from ..engine.state import TARGETED
     if len(new) != 1 or new[0].kind not in ("destroy", "exile", "exile_permanent", "bounce", "damage", "tap") \
-            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", text, re.I):
+            or new[0].target not in TARGETED or re.search(r"you control|you own|your ", re.sub(
+                r"\bequal to the number of [^,]+?(?= to (?:target|any target)\b|$)", "", text), re.I):
         return False
     new[0].data["may_hostile"] = True
     return True
@@ -245,11 +246,6 @@ def _parse_effects(text: str, opts: bool = False):
                 effects += new
                 continue
         mx = re.fullmatch(r"(.+?),? where X is (.+)", s, re.I)
-        # Named-card counts still lack a name-preserving quantity spec.
-        if mx and re.search(r"\bX\b", mx[1]) and re.search(r"\btarget (?:player|opponent)\b", mx[1], re.I) \
-                and re.search(r"\bnamed\b", mx[2], re.I):
-            unmatched.append(s)
-            continue
         if mx and re.search(r"\bX\b", mx[1]) and _xq(mx[2]):
             spec = _xq(mx[2])
             new, bad = [], True
@@ -354,13 +350,14 @@ def _parse_effects(text: str, opts: bool = False):
             # Otherwise "instead A, then B" can leave B running beside the base.
             parts = None if re.search(r"\binstead\b", s, re.I) else _split_compound(s)
             from ..cx_suspect import parse_otherwise
-            from .. import cx_grammar, cx_multi_target
+            from .. import cx_grammar, cx_multi_target, excess_damage
             from ..card_referent import parse_rider as card_ref     # "... equal to that card's mana value" (#313)
             if parts:
                 effects += parts
             elif not card_ref(s, effects) and not parse_otherwise(s, effects) and \
                     not cx_grammar.parse_fallback(s, effects) \
-                    and not cx_multi_target.lift(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312)
+                    and not cx_multi_target.lift(s, effects) \
+                    and not excess_damage.parse(s, effects):   # "Otherwise, ..."; grammar; counted targets (#312); excess (#560)
                 unmatched.append(sentence.strip())
         effects[first:] = _cx_tokens.reparse(s, effects[first:])
         if paid:
@@ -552,6 +549,8 @@ def _parse_face(data: dict) -> CardDef:
     text = re.sub(r"(becomes the target of (?:a spell or ability|a spell)), sacrifice it\.", r"\1, sacrifice ~.", text)
     from ..blink import prepare_linked
     text = prepare_linked(text)
+    from ..its_referent import rewrite as _its_rewrite
+    text = _its_rewrite(text)       # "When ~ dies, create a number of X equal to its power" (#535)
     # The two-sentence O-ring wording ("... exile X. When ~ leaves the battlefield, return the exiled
     # card(s) to the battlefield ...") is the single-sentence "exile X until ~ leaves the battlefield"
     # the oring templates already implement (the engine returns the card when the source leaves).
@@ -799,12 +798,12 @@ def _parse_ability_cost(text: str):
             extra["exile_gy_card"] = "card" if m[1] == "card" else m[1] + " card"
         elif (m := re.fullmatch(r"Pay (\d+) life", part)):
             extra["life"] = int(m[1])
-        elif (m := re.fullmatch(r"Remove (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) "
+        elif (m := re.fullmatch(r"Remove (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|X) "
                                r"([\w/+-]+) counters? from ~", part)):
-            if 'remove_counter' in extra or _num(m[1]) < 1:
+            if 'remove_counter' in extra or m[1] != "X" and _num(m[1]) < 1:
                 return None
             extra["remove_counter"] = m[2]
-            extra["remove_counter_count"] = _num(m[1])
+            extra["remove_counter_count"] = "x" if m[1] == "X" else _num(m[1])     # X: the number removed (#345)
         elif (m := re.fullmatch(r"Remove (a|one|two|three|four|five|\d+) \+1/\+1 counters? "
                                r"from among creatures you control", part)):
             n = _num(m[1])
@@ -888,6 +887,9 @@ def _parse_ability(line: str, approximations: list):
     effects, bad = _parse_effects(body)
     if bad or not effects:
         return None
+    if cost[1].get("remove_counter_count") == "x" and not (
+            any(e.data.get("x") for e in effects) and all(e.kind != "die_amount" for e in effects)):
+        return None     # "Remove X ... counters": an effect must read that X (#345)
     approximations += approx
     return Activated("ability", cost[0], effects=effects, extra_costs=cost[1], sorcery=sorcery, once=once, text=original,
                      condition=condition, max_per_turn=limit, any_player=any_player, restrictions=restrictions,
@@ -980,8 +982,8 @@ def _parse_trigger_line(line: str):
             flt = "blocks_flying"
         if events == ("cast_instant_sorcery",) and "that targets a creature" in pat:
             flt = "targets_creature"
-        if events in (("etb",), ("attacks",), ("blocks",)) and re.match(r"it deals \w+ damage to [^.]* and ", rest):
-            rest = "~" + rest[2:]       # "When ~ enters, it deals 4 damage to any target and 2 damage to you" (#320)
+        from ..self_trigger_it import rewrite as _self_it
+        rest = _self_it(events, line, rest)        # "When ~ enters, it deals ..." / "you may have it deal ..." (#319, #320)
         if events in (("targeted_mine",), ("dealt_damage",)):
             rest = re.sub(r"^it (gets|gains|deals)\b", r"~ \1", re.sub(r"\b(on|untap|to) it\b", r"\1 ~", rest))
         if events == ("cast_cmc",):

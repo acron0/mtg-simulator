@@ -19,6 +19,7 @@ None. ``value(game, p, spec, item, prev)`` evaluates it when the effect resolves
     the total power of creatures you control
     the number of opponents you have
     the number of colors of mana spent to cast ~ (converge)
+    the amount of mana spent to cast ~           (the spell's payment, X included; a copy paid nothing)
     twice <Q> / half <Q>, rounded up|down
 
 Only quantities whose referent is fixed by the words are read here. "its power", "that card's mana value" and
@@ -30,7 +31,7 @@ import re
 
 _COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 _STATS = ("power", "toughness", "mana value")
-_ZONES = {"in all graveyards": "all_gy", "in your graveyard": "your_gy", "in an opponent's graveyard": "opp_gy",
+_ZONES = {"in all graveyards": "all_gy", "in each graveyard": "all_gy", "in your graveyard": "your_gy", "in an opponent's graveyard": "opp_gy",
           "in your hand": "your_hand", "in exile": "exile", "you own in exile": "your_exile",
           "in your library": "your_library"}
 # "the number of <things> <past event> this turn" -> the turn-history condition phrase cx_condlib already counts
@@ -86,6 +87,8 @@ def quantity(text: str):
         return ("cxq", "opponents")
     if low in ("the number of colors of mana spent to cast ~", "the number of colors of mana spent to cast this spell"):
         return ("cxq", "converge")
+    if low in ("the amount of mana spent to cast ~", "the amount of mana spent to cast this spell"):
+        return ("cxq", "mana_amount")
     if low == "the number of cards you've drawn this turn":
         return ("cxq", "drawn")
     if low == "the number of cards you've discarded this turn":
@@ -112,11 +115,11 @@ def quantity(text: str):
     m = re.fullmatch(r"the number of card types among cards (in all graveyards|in your graveyard)", low)
     if m:
         return ("cxq", "card_types", _ZONES[m[1]])
-    m = re.fullmatch(r"the number of (.+?) (in all graveyards|in your graveyard|in an opponent's graveyard|"
+    m = re.fullmatch(r"the number of (.+?) (in all graveyards|in each graveyard|in your graveyard|in an opponent's graveyard|"
                      r"in your hand|in exile|you own in exile|in your library)", t, re.I)
     if m:
         zone = _ZONES[m[2].lower()]
-        named = re.fullmatch(r"cards named ~", m[1], re.I)
+        named = re.fullmatch(r"cards? named ~", m[1], re.I)
         if named:
             return ("cxq", "cards", zone, None)
         spec = _cards(m[1])
@@ -165,6 +168,17 @@ def _source(item):
     return src if isinstance(src, Permanent) else None
 
 
+def spent_amount(obj) -> int:
+    """Mana actually spent to cast a spell (X included) or to cast the spell a permanent resolved from;
+    a copy, or a permanent that wasn't cast, spent none."""
+    from .engine.state import Permanent
+    if obj is None or getattr(obj, "kind", "") == "copy":
+        return 0
+    if isinstance(obj, Permanent):
+        return (obj.mana_spent + obj.entered_x) if obj.was_cast else 0
+    return getattr(obj, "mana_spent", 0) + getattr(obj, "x", 0)
+
+
 def _source_name(item) -> str:
     card = getattr(item, "card", None) or getattr(getattr(item, "source", None), "card", None)
     return card.name if card is not None else ""
@@ -206,6 +220,8 @@ def value(game, p, spec, item, prev) -> int:
         if item is not None and getattr(item, "is_spell", False):
             return len(getattr(item, "mana_colors", ()))
         return len(getattr(_source(item), "mana_colors", ()))
+    if kind == "mana_amount":
+        return spent_amount(item if item is not None and getattr(item, "is_spell", False) else _source(item))
     if kind == "drawn":
         drawn = getattr(p, "drawn_turn", (None, 0))
         return drawn[1] if drawn[0] == game.turn else 0

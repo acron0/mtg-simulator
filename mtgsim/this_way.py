@@ -8,8 +8,8 @@
 
 **The journal.** A listener on the rules-event bus (``zone_change``) records every card that moves while an effect
 resolves, on the resolving item: ``(card, from zone, to zone, owner, controller)``; ``Game.deal_damage`` adds what
-was dealt damage. ``start(game, item, eff)`` (called as ``Game.resolve`` begins an effect) starts a new journal for
-the effect, so:
+was dealt damage. ``start(game, item, eff)`` (called as ``Game.resolve`` begins an effect) keeps one journal for the
+effects since the last one that read it (one instruction can be several engine effects), so:
 
 * a condition on an effect ("If a creature card is exiled this way, ...") is checked before that effect resolves and
   reads ``item.tw_journal``: the previous effect's results;
@@ -72,15 +72,20 @@ def _reads(eff) -> bool:
 
 
 def start(game, item, eff):
-    """Game.resolve: a new effect of item begins. An effect that reads "this way" keeps the journal of the effects
-    before it ("If a creature card is exiled this way, you gain 2 life and draw a card": both read the exile);
-    any other effect starts a new one."""
+    """Game.resolve: a new effect of item begins. The journal gathers the effects since the last one that read it:
+    one instruction can be several engine effects ("destroy all artifacts and enchantments", "discard two cards,
+    then draw two cards"), and "this way" names all of them. An effect that reads "this way" keeps the journal ("If a
+    creature card is exiled this way, you gain 2 life and draw a card": both read the exile); the first effect after
+    a reader starts a new one."""
     if item is None:
         return
     _ensure(game)
     if _reads(eff) and getattr(item, "tw_journal", None) is not None:
+        item.tw_read = True
         return
-    item.tw_journal = []
+    if getattr(item, "tw_journal", None) is None or getattr(item, "tw_read", False):
+        item.tw_journal = []
+        item.tw_read = False
     kinds = [eff.kind] + [e.kind for e in eff.data.get("effects", ()) if hasattr(e, "kind")] \
         if isinstance(eff.data, dict) else [eff.kind]
     if eff.kind == "group_remove":

@@ -451,6 +451,10 @@ class Permanent:
                 return True
         if kw in self.card.keywords or kw in self.temp_kw or kw in self.perm_kw or (kw in KEYWORDS and self.counters.get(kw, 0) > 0):
             return True
+        if kw in ("toxic", "ward"):        # "with toxic" / "with ward": any value, printed or granted (#633)
+            from ..kw_values import amounts
+            if (self.card.toxic if kw == "toxic" else self.card.ward) or amounts(self, kw):
+                return True
         if kw in ('training', 'dethrone') and self.is_creature and any(k == kw and not (other and source is self)
                                    for source in self.controller.battlefield
                                    for k, other in source.card.granted_attack_keywords
@@ -607,8 +611,9 @@ class Permanent:
             return self.animated.ward
         if self.card.ward_untapped_only and self.tapped:
             return 0
+        from ..kw_values import amounts         # granted "ward {N}" (#633)
         return max([self.card.ward] + [e.card.equip_ward for e in self.equipment] +
-                   [a.card.equip_ward for a in self.auras])
+                   [a.card.equip_ward for a in self.auras] + amounts(self, "ward"))
 
     def can_attack(self):
         return (self.is_creature and not self.tapped and self.detained_by is None and not (self.has("defender") and not self.has("attacks_despite_defender")) and not self.has("cant_attack_now") and not (self.card.cant_attack and not self.abilities_suppressed)

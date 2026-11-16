@@ -63,9 +63,13 @@ def description(text: str, plural: bool, addition: str):
     t = text.strip()
     ops, pt = [], None
     m = re.search(r" with base power and toughness (\d+)/(\d+)$", t)
+    mv = re.search(r" with power and toughness each equal to its mana value$", t)
     if m:
         pt = (int(m[1]), int(m[2]))
         t = t[:m.start()]
+    elif mv:                # layer 7b, per permanent: its own mana value (#520)
+        pt = ("mv", "mv")
+        t = t[:mv.start()]
     if not plural:
         m = re.match(r"an? ", t)
         if not m:
@@ -139,6 +143,8 @@ def _subject(line: str, st):
     plural = not (each and m[1].startswith("Each"))
     words = each[1] if each else m[1]
     spec = selector(words if plural else re.sub(r"^(\w+)", r"\1s", words), plural=True)
+    if spec is None and not plural:         # "Each other non-Aura enchantment": the noun is last (#520)
+        spec = selector(re.sub(r"(\w+)((?: you control| an opponent controls)?)$", r"\1s\2", words), plural=True)
     if spec is None:
         return None
     return "group", spec, m[1], plural, line[m.end():]
@@ -152,7 +158,9 @@ _ADD = re.compile(r"(?:is|are) (.+?) in addition to (?:its|their) other (colors 
 _SET = re.compile(r"(?:is|are) (.+)")
 
 
-def parse_line(line: str, st) -> bool:
+def parse_line(line: str, st, gate: str = "") -> bool:
+    """Read the line; with ``gate`` (a cx_static_gate condition code, the "as long as" already removed) the
+    operations are recorded as a gated row instead (Starfield of Nyx, #520)."""
     s = line.strip()
     if not s.endswith(".") or '"' in s or re.search(r"\b(?:as long as|during|until|this turn|if|unless|for as long|"
                                                      r"where|for each|chosen|of your choice|except)\b", s, re.I):
@@ -177,6 +185,9 @@ def parse_line(line: str, st) -> bool:
     for phrase in _phrases(rest):
         if re.fullmatch(r"(?:it )?loses? all (?:other )?abilities", phrase):
             ops.append(("lose_all",))       # layer 6 (slice 3): "loses all other abilities" keeps this line's grants
+            continue
+        if re.fullmatch(r"(?:has|have) base power and base toughness each equal to (?:its|their) mana value", phrase):
+            ops.append(("set_base", "mv", "mv"))     # layer 7b: each permanent's own mana value (#520)
             continue
         if re.fullmatch(r"(?:is|are) every creature type", phrase):
             ops.append(("all_creature_types",))     # layer 4: every creature type (the view's changeling flag)
@@ -208,6 +219,16 @@ def parse_line(line: str, st) -> bool:
         return False
     if not ops or not _allowed(scope, spec, ops, st):
         return False
+    if gate:
+        # Only group changes behind a "you control N or more <filter>" count: the views are recomputed on every
+        # enter / leave / control change while such a rule is in play, which is exactly when that count changes.
+        # A gate that flips otherwise (turn, life, tapped) would leave the type view stale.
+        if others or scope != "group" or not gate.startswith("cx:ctrl"):
+            return False
+        rules = st.extra.setdefault("advanced_rules", {})
+        rules["gated"] = tuple(rules.get("gated", ())) + ((gate, scope, dict(spec) if spec else None,
+                                                          ("rule", "cx_chars", tuple(ops))),)
+        return True
     import copy
     saved = copy.deepcopy(st.extra)
     if others:
@@ -239,7 +260,11 @@ def _allowed(scope, spec, ops, st) -> bool:
         return True
     if not layered:
         return True
-    if set(spec) - _STABLE or set(spec.get("traits", ())) - {"token", "nontoken"}:
+    keys = set(spec) - _STABLE
+    if keys == {"not_subtypes"} and not any(op[0] in ("add_subtypes", "set_subtypes", "set_types", "all_creature_types")
+                                            for op in layered):
+        keys = set()        # "non-Aura": no operation here changes subtypes, so membership can't go stale (#520)
+    if keys or set(spec.get("traits", ())) - {"token", "nontoken"}:
         return False
     named = {t.lower() for op in layered if op[0] in ("add_types", "set_types") for t in op[1]}
     if named & set(spec.get("types_all", ())) or any(op[0] == "set_types" for op in layered):
@@ -320,7 +345,8 @@ def effects(perm) -> list:
             uid = -(id(source) * 64 + 32 + (n * 8 + k) % 32)
             kind = op[0]
             if kind == "set_base":
-                out.append(ContinuousEffect(uid, perm, "set_base", stamp, op[1], op[2], source=source))
+                p_, t_ = (printed.cmc if v == "mv" else v for v in (op[1], op[2]))      # "equal to its mana value"
+                out.append(ContinuousEffect(uid, perm, "set_base", stamp, p_, t_, source=source))
             elif kind == "lose_all":
                 out.append(ContinuousEffect(uid, perm, "lose_all", stamp, source=source))
             elif kind in ("remove_kw", "lock_kw"):
@@ -346,16 +372,24 @@ def effects(perm) -> list:
     return out
 
 
+def _gated(rules) -> bool:
+    return any(row[3][:2] == ("rule", "cx_chars") for row in rules.get("gated", ()))
+
+
 def grants(perm) -> bool:
     """Whether perm's card has a cx_chars rule that changes types or colours (its view needs recomputing)."""
     card = getattr(perm, "_card", None)
     rules = card.advanced_rules if card is not None and card.advanced_rules else {}
-    return any(rules.get(k) for k in ("cx_chars", "cx_chars@host", "cx_chars@group"))
+    return any(rules.get(k) for k in ("cx_chars", "cx_chars@host", "cx_chars@group")) or _gated(rules)
 
 
 def present(game) -> bool:
+    """Whether a group or gated cx_chars rule is in play: then every enter / leave / control change recomputes the
+    views (a gate such as "five or more enchantments" only flips on such changes)."""
     from .residual_templates import sources
-    return bool(sources(game, "cx_chars@group"))
+    if sources(game, "cx_chars@group"):
+        return True
+    return any(x.card.advanced_rules and _gated(x.card.advanced_rules) for pl in game.players for x in pl.battlefield)
 
 
 # ---------------------------------------------------------------- "loses all abilities" (layer 6, slice 3)

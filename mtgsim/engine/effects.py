@@ -99,6 +99,11 @@ class EffectsMixin:
                 if amount > 0:
                     self.change_life(target, -amount, cause)
         elif isinstance(target, Permanent) and target in target.controller.battlefield:
+            if target.is_creature or target.is_planeswalker:
+                # rule 120.4a: the damage beyond lethal (loyalty for a planeswalker), for "excess damage ... this way"
+                from ..excess_damage import lethal
+                limit = lethal(target, source) if target.is_creature else max(0, target.loyalty)
+                self.excess_dealt = getattr(self, "excess_dealt", 0) + max(0, amount - limit)
             if target.is_planeswalker:
                 target.counters["loyalty"] = target.loyalty - amount
             if target.is_battle:          # damage to a battle removes that many defense counters (#254)

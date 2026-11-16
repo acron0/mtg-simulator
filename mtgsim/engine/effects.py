@@ -1,6 +1,8 @@
 """Game methods for game events that effects and rules cause: damage, destroy, sacrifice, dying, state-based actions."""
 from __future__ import annotations
 
+import re
+
 from .. import continuous, counter_mechanics, cx_static_damage, cx_triggers, that_much, this_way
 
 from .. import auras, cx_trig_damage, cx_trig_state
@@ -218,7 +220,9 @@ class EffectsMixin:
 
     def dig(self, p: Player, n: int, keep: int, desc: str | None = None):
         cards = list(reversed(p.library[-min(n, len(p.library)):])) if n else []
-        allowed = [c for c in cards if card_matches(c, desc.replace(" or ", " or a "))] if desc else cards
+        # "artifact or creature card" -> "artifact or a creature card"; never "power 2 or less" (#776)
+        allowed = [c for c in cards if card_matches(c, re.sub(r" or (?!less\b|greater\b|more\b)", " or a ", desc))] \
+            if desc else cards
         chosen = list(self.hook(p, "choose_dig")(self, p, list(allowed), keep))[:keep] if allowed else []
         rest = list(cards)
         for c in chosen:

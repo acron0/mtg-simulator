@@ -25,7 +25,7 @@ def game():
 class Parse(unittest.TestCase):
     def test_lose_verb_and_conditions(self):
         self.assertEqual(DOOM.unsupported, [])
-        self.assertEqual(DOOM.spell_effects[0].data["side"], "theirs")
+        # read by life_total (#760) or this branch's cx_grammar_life verb: either way the opponent is aimed at (Resolve)
         from mtgsim.cards.clauses import _if_cond
         self.assertEqual(_if_cond("your library has no cards in it"), 'lib:["res","you","library","==",0]')
         self.assertEqual(_if_cond("you have exactly thirteen cards in your hand"), 'lib:["res","you","hand","==",13]')

@@ -1603,17 +1603,18 @@ class HeuristicAI:
         effects = list(card.spell_effects)
         for i, eff in enumerate(effects):
             if tempo and eff.kind == "tap" and eff.target in CREATURE_TARGETS:
-                legal = [c for c in pool if not c.tapped and _legal(game, me, eff, c, card)
-                         and all(c is not t for t in targets)]
-                tgt = max(legal, key=perm_value, default=None)
-                if tgt is None:
+                legal = sorted((c for c in pool if not c.tapped and _legal(game, me, eff, c, card)
+                                and all(c is not t for t in targets)), key=perm_value, reverse=True)
+                if not legal:
                     if eff.data.get("optional_target"):
                         targets.append(None)
                         continue
                     return None
-                stunned = i + 1 < len(effects) and _locks_prev(game, me, effects[i + 1])
-                targets.append(tgt)
-                value += perm_value(tgt) * (0.6 if stunned else 0.25)
+                # "... doesn't untap during its controller's next untap step": a stun after it, or the tap's own
+                # "freeze" rider (Permafrost Trap, #804); "tap up to two target creatures": the best two
+                stunned = i + 1 < len(effects) and _locks_prev(game, me, effects[i + 1]) or bool(eff.data.get("freeze"))
+                targets.append(legal[0])
+                value += sum(perm_value(c) for c in legal[:max(1, eff.amount)]) * (0.6 if stunned else 0.25)
                 continue
             if tempo and eff.kind == "cx_multi" and eff.data["probe"].kind == "tap" \
                     and eff.data["probe"].target in CREATURE_TARGETS:
@@ -1668,6 +1669,12 @@ class HeuristicAI:
                 etb = [e for t in card.triggers if t.event == "etb" for e in t.effects] or list(card.etb_effects)
                 plan = self._removal_on(game, me, dataclasses.replace(card, spell_effects=etb), attackers)
                 plan = None if plan is None else (plan[0], None)
+            elif card.spell_effects and all(e.kind == "divided_damage" for e in card.spell_effects):
+                # "N damage divided as you choose among any number of target attacking creatures" (Arrow Volley
+                # Trap, #804): what the planned division kills now
+                from .cx_damage import ai_worth
+                worth = [ai_worth(self, game, me, e, card, True) for e in card.spell_effects]
+                plan = None if None in worth else (sum(worth), [None] * len(card.spell_effects))
             else:
                 plan = self._removal_on(game, me, card, attackers)
             if plan is None:
@@ -1726,7 +1733,8 @@ class HeuristicAI:
             elif _is_trick(card) or any(e.target == "spell" for e in card.spell_effects):
                 continue
             elif all(e.kind in ("draw", "dig", "scry", "surveil", "discard", "gain_life", "lose_life") or
-                     (e.kind == "token" and "power" not in (e.data or {})) for e in card.spell_effects):
+                     (e.kind == "token" and not (e.data or {}).get("attacking")) for e in card.spell_effects):
+                # (creature tokens too, Baloth Cage Trap #804: made at their end step, they're ready on our turn)
                 # Cantrips and "draw two and create a Map" at the end step; judged as the sorcery
                 # they would be in our own main phase (keeping an additional sacrifice cost).
                 plan = self.plan_spell(game, me, dataclasses.replace(

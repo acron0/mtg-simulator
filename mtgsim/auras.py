@@ -141,7 +141,8 @@ def finish(extra: dict, triggers=()):
     if extra.get("aura"):
         b = extra.get("equip_bonus", (0, 0))
         extra["aura_hostile"] = bool(extra.get("aura_flags")) or b[0] < 0 or b[1] < 0 or \
-            extra["aura"] in ("creature an opponent controls", "player") or gated or _punisher(extra, triggers)
+            extra["aura"] in ("creature an opponent controls", "player") or gated or _punisher(extra, triggers) or \
+            bool((extra.get("advanced_rules") or {}).get("aura_control"))      # Control Magic: steal theirs (#825)
 
 
 def _punisher(extra: dict, triggers) -> bool:

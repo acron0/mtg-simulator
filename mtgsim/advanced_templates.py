@@ -172,9 +172,11 @@ def activation_cost(game, p, permanent, cost):
 
 
 def counter_amount(permanent, name, amount):
+    plus = 0
     if name == '+1/+1' and permanent.is_creature:
-        amount += sum(rules(x).get('counter_plus', 0) for x in permanent.controller.battlefield)
-    return amount
+        plus = sum(rules(x).get('counter_plus', 0) for x in permanent.controller.battlefield)
+    from .cx_replace_amounts import modify       # "twice that many / that many plus one ... instead" (#407)
+    return modify(permanent, name, amount, plus)
 
 
 def draw_recipient(game, p, replaced=()):

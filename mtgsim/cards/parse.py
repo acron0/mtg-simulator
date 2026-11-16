@@ -770,7 +770,8 @@ def _parse_ability_cost(text: str):
 
     A leading ability word ("Secrets of the Soul — ", "Vivid — ") is not part of the cost."""
     mana, extra = {"generic": 0}, {}
-    parts = text.split(", ")
+    parts = re.sub(r"(Pay half your life), (rounded (?:up|down))", r"\1@@\2", text).split(", ")
+    parts = [x.replace("@@", ", ") for x in parts]
     parts[0] = re.sub(r"^[A-Z][\w' ]* — ", "", parts[0])
     for part in parts:
         m = None

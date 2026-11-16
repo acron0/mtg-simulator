@@ -166,7 +166,7 @@ class RealCards(unittest.TestCase):
         for name in ("Baral's Expertise", "Sram's Expertise", "Yahenni's Expertise", "Rishkar's Expertise",
                      "Electrodominance", "Epistolary Librarian", "Aisha of Sparks and Smoke", "Maelstrom Archangel",
                      "Wildfire Eternal", "Surtland Elementalist", "Yue, the Moon Spirit", "Omnispell Adept",
-                     "Marvo, Deep Operative", "Buster Sword"):
+                     "Marvo, Deep Operative", "Buster Sword", "Omniscience"):
             cov = card_coverage(db.get(name))
             self.assertEqual(cov.status, "full", (name, cov.ignored))
 

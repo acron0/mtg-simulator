@@ -135,7 +135,7 @@ class GraveyardActivated(unittest.TestCase):
 
     def test_unsupported_cost_or_restriction_stays_visible(self):
         for text in ("{T}: Return this card from your graveyard to the battlefield.",
-                     "{1}: Return this card from your graveyard to the battlefield. Activate only if you've scried or surveilled this turn."):
+                     "{1}: Return this card from your graveyard to the battlefield. Activate only if an opponent has been dealt noncombat damage this turn."):
             with self.subTest(text=text):
                 c = revenant(text)
                 self.assertTrue(c.unsupported)
